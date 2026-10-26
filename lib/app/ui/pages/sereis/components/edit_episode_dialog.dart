@@ -508,7 +508,7 @@ class _EditEpisodeDialogState extends State<EditEpisodeDialog> {
             onPause: () => provider.pauseEpisodeMultipartUpload('episode_${widget.episode.id}'),
             onResume: () => provider.resumeEpisodeMultipartUpload('episode_${widget.episode.id}'),
             onRetry: () => provider.retryEpisodeMultipartUpload('episode_${widget.episode.id}'),
-            onAbort: () => provider.abortEpisodeMultipartUpload('episode_${widget.episode.id}'),
+            onAbort: () => provider.abortEpisodeMultipartUpload('episode_${widget.episode.id}', context: context),
           ),
         ],
       ],

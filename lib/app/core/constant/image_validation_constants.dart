@@ -2,11 +2,11 @@ class ImageValidationConstants {
   ImageValidationConstants._();
 
   // Poster
-  static const int posterWidth = 1080;
-  static const int posterHeight = 1620;
+  static const int posterWidth = 1600;
+  static const int posterHeight = 900;
   static const int posterMinWidth = 720;
   static const int posterMinHeight = 1080;
-  static const double posterAspectRatio = 2 / 3;
+  static const double posterAspectRatio = 16 / 9;
   static const int posterMaxSizeMB = 2;
   static const int posterMinSizeKB = 50;
 

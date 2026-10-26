@@ -10,7 +10,9 @@
             "type": "dart",
             "args": [
                 "--web-port",
-                "8080"
+                "8080",
+                "--web-browser-flag",
+                "--disable-web-security"
             ]
         },
         {
@@ -20,7 +22,9 @@
             "flutterMode": "profile",
             "args": [
                 "--web-port",
-                "8080"
+                "8080",
+                "--web-browser-flag",
+                "--disable-web-security"
             ]
         },
         {
@@ -30,7 +34,9 @@
             "flutterMode": "release",
             "args": [
                 "--web-port",
-                "8080"
+                "8080",
+                "--web-browser-flag",
+                "--disable-web-security"
             ]
         }
     ]

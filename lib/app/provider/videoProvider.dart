@@ -43,6 +43,8 @@ import '../core/utils/user_message.dart';
 import '../core/utils/currency_formatter.dart';
 import '../core/upload/multipart_upload_persistence.dart';
 import '../core/upload/s3_multipart_upload_service.dart';
+import '../core/draft/movie_draft.dart';
+import '../core/draft/movie_draft_service.dart';
 import 'dart:typed_data';
 
 class VideoProvider extends ChangeNotifier {
@@ -129,6 +131,13 @@ class VideoProvider extends ChangeNotifier {
   String? get activeContentId => _activeContentId;
   set activeContentId(String? val) {
     _activeContentId = val;
+    notifyListeners();
+  }
+
+  String? _activeDraftId;
+  String? get activeDraftId => _activeDraftId;
+  set activeDraftId(String? val) {
+    _activeDraftId = val;
     notifyListeners();
   }
 
@@ -345,44 +354,529 @@ class VideoProvider extends ChangeNotifier {
     await primaryUploadTask?.startOrResume();
   }
 
-  Future<void> abortPrimaryMultipartUpload() async {
-    await primaryUploadTask?.abort();
-    primaryUploadTask = null;
-    primaryUploadProgressInfo = null;
-    primarySelectedFile = null;
-    movieUploadProgress = 0.0;
-    _isMovieUploading = false;
-    movieUrlController.clear();
-    notifyListeners();
+  Future<bool> abortPrimaryMultipartUpload({BuildContext? context}) async {
+    final task = primaryUploadTask;
+    bool success = true;
+    if (task != null) {
+      success = await task.abort();
+    }
+    if (success) {
+      primaryUploadTask = null;
+      primaryUploadProgressInfo = null;
+      primarySelectedFile = null;
+      movieUploadProgress = 0.0;
+      _isMovieUploading = false;
+      movieUrlController.clear();
+      for (final langMap in _movieVariantControllers.values) {
+        langMap['movie']?.clear();
+        langMap['video']?.clear();
+      }
+      notifyListeners();
+      if (context != null && context.mounted) {
+        CustomToast.show(context, "Upload cancelled successfully.", isSuccess: true);
+      }
+    } else {
+      notifyListeners();
+      if (context != null && context.mounted) {
+        CustomToast.show(context, "Unable to cancel the upload. Please try again.", isSuccess: false);
+      }
+    }
+    return success;
   }
 
   void pauseTeaserMultipartUpload() => teaserUploadTask?.pause();
   Future<void> resumeTeaserMultipartUpload() async => teaserUploadTask?.startOrResume();
   Future<void> retryTeaserMultipartUpload() async => teaserUploadTask?.startOrResume();
-  Future<void> abortTeaserMultipartUpload() async {
-    await teaserUploadTask?.abort();
-    teaserUploadTask = null;
-    teaserUploadProgressInfo = null;
-    teaserSelectedFile = null;
-    teaserUploadProgress = 0.0;
-    _isTeaserUploading = false;
-    teaserUrlController.clear();
-    notifyListeners();
+  Future<bool> abortTeaserMultipartUpload({BuildContext? context}) async {
+    final task = teaserUploadTask;
+    bool success = true;
+    if (task != null) {
+      success = await task.abort();
+    }
+    if (success) {
+      teaserUploadTask = null;
+      teaserUploadProgressInfo = null;
+      teaserSelectedFile = null;
+      teaserUploadProgress = 0.0;
+      _isTeaserUploading = false;
+      teaserUrlController.clear();
+      for (final langMap in _movieVariantControllers.values) {
+        langMap['teaser']?.clear();
+      }
+      notifyListeners();
+      if (context != null && context.mounted) {
+        CustomToast.show(context, "Upload cancelled successfully.", isSuccess: true);
+      }
+    } else {
+      notifyListeners();
+      if (context != null && context.mounted) {
+        CustomToast.show(context, "Unable to cancel the upload. Please try again.", isSuccess: false);
+      }
+    }
+    return success;
   }
 
   void pauseTrailerMultipartUpload() => trailerUploadTask?.pause();
   Future<void> resumeTrailerMultipartUpload() async => trailerUploadTask?.startOrResume();
   Future<void> retryTrailerMultipartUpload() async => trailerUploadTask?.startOrResume();
-  Future<void> abortTrailerMultipartUpload() async {
-    await trailerUploadTask?.abort();
-    trailerUploadTask = null;
-    trailerUploadProgressInfo = null;
-    trailerSelectedFile = null;
-    trailerUploadProgress = 0.0;
-    _isTrailerUploading = false;
-    trailerUrlController.clear();
+
+  bool get hasUnsavedChanges {
+    if (titleController.text.trim().isNotEmpty) return true;
+    if (descriptionController.text.trim().isNotEmpty) return true;
+    if (selectedLanguages.isNotEmpty) return true;
+    if (selectedGeners.isNotEmpty) return true;
+    if (_pendingCasts.isNotEmpty || hasCastDraft) return true;
+    if (_pendingCrews.isNotEmpty || hasCrewDraft) return true;
+    if (primarySelectedFile != null) return true;
+    if (teaserSelectedFile != null) return true;
+    if (trailerSelectedFile != null) return true;
+    if (priceController.text.trim().isNotEmpty) return true;
+    if (releaseDateController.text.trim().isNotEmpty) return true;
+    if (hasUploadedAgreement) return true;
+    for (final variant in _movieVariantControllers.values) {
+      for (final ctrl in variant.values) {
+        if (ctrl.text.trim().isNotEmpty) return true;
+      }
+    }
+    return false;
+  }
+
+  Future<MovieDraft?> buildCurrentDraft({
+    int currentStep = 0,
+    String formType = 'uploadMovie',
+    int? editContentId,
+  }) async {
+    final localPrefs = LocalSharePreferences();
+    final mediaHouse = await localPrefs.getMediaHouse();
+    final user = await localPrefs.getUser();
+
+    final mId = mediaHouse?.id ?? 0;
+    final uId = user?.id?.toString() ?? user?.emailId ?? '';
+    
+    final resolvedContentId = editContentId ?? int.tryParse(_activeContentId ?? '');
+    final resolvedFormType = (resolvedContentId != null && resolvedContentId > 0)
+        ? 'editMovie'
+        : formType;
+
+    final dId = _activeDraftId ??
+        MovieDraft.generateDraftId(
+          formType: resolvedFormType,
+          mediaHouseId: mId,
+          contentId: resolvedContentId,
+        );
+
+    final variantsMap = <String, Map<String, String>>{};
+    _movieVariantControllers.forEach((lang, fields) {
+      final m = <String, String>{};
+      fields.forEach((k, ctrl) {
+        m[k] = ctrl.text.trim();
+      });
+      variantsMap[lang] = m;
+    });
+
+    final langList = selectedLanguages.map((l) => l.toJson()).toList();
+
+    return MovieDraft(
+      draftId: dId,
+      formType: resolvedFormType,
+      mediaHouseId: mId,
+      userId: uId,
+      title: titleController.text.trim(),
+      description: descriptionController.text.trim(),
+      contentType: typeController.text.trim().isNotEmpty
+          ? typeController.text.trim()
+          : 'MOVIE',
+      selectedGenres: List<String>.from(selectedGeners),
+      selectedLanguages: langList,
+      castList:
+          _pendingCasts.map((c) => Map<String, dynamic>.from(c)).toList(),
+      crewList:
+          _pendingCrews.map((c) => Map<String, dynamic>.from(c)).toList(),
+      directorList: List<String>.from(directorList),
+      director: directorController.text.trim().isNotEmpty
+          ? directorController.text.trim()
+          : (directorList.isNotEmpty ? directorList.first : ''),
+      releaseDate: releaseDateController.text.trim(),
+      price: double.tryParse(priceController.text.trim()) ?? 0.0,
+      runtime: double.tryParse(runTimeController.text.trim()) ?? 0.0,
+      ageRating: ageRatingController.text.trim(),
+      rentalDuration: rentalDurationController.text.trim().isNotEmpty
+          ? rentalDurationController.text.trim()
+          : rentlDurationController.text.trim(),
+      numberOfAttempt:
+          int.tryParse(numberOfAttemptController.text.trim()) ?? 0,
+      fullAttempt: int.tryParse(fullAttemptController.text.trim()) ?? 0,
+      sensorCertificate: censorCertificateController.text.trim(),
+      isFeatured: isFeatured,
+      isDownloadable: isDownloadable,
+      isPaid: isRegistrationFeePaid,
+      registrationFeePaid: registrationFeePaidValue,
+      registrationFeeDetails: registrationFeeDetailsValue,
+      registrationPaymentId: registrationPaymentIdController.text.trim(),
+      registrationPaymentDate: registrationPaymentDateController.text.trim(),
+      registrationAmountPaid: registrationAmountPaidController.text.trim(),
+      registrationPlanType: registrationPlanTypeController.text.trim(),
+      registrationValidity: registrationValidityController.text.trim(),
+      registrationPaymentMethod:
+          registrationPaymentMethodController.text.trim(),
+      agreementDocumentUrl: agreementDocumentUrlController.text.trim().isNotEmpty
+          ? agreementDocumentUrlController.text.trim()
+          : agreementDocumentUrl,
+      agreementSignedDate: agreementSignedDateController.text.trim(),
+      currentStep: currentStep,
+      lastModified: DateTime.now(),
+      contentId: resolvedContentId,
+      uploadStatus: primaryUploadTask?.state.name ??
+          (primaryUploadProgressInfo?.state.name ?? 'idle'),
+      uploadProgress: primaryUploadProgressInfo?.percentage ??
+          (movieUploadProgress * 100.0),
+      uploadErrorMessage: primaryUploadProgressInfo?.errorMessage,
+      languageVariants: variantsMap,
+      selectedAudioFormat: List<String>.from(selectedAudioFormat),
+      selectedSubLanguages: List<String>.from(selectedSubLanguages),
+      primaryUploadTaskId: primaryUploadTask?.localTaskId,
+      primaryUploadSessionId: primaryUploadTask?.uploadSessionId,
+      primaryUploadId: primaryUploadTask?.uploadId,
+      primaryS3Key: primaryUploadTask?.key,
+      primaryPartSize: primaryUploadTask?.partSize,
+      primaryTotalParts: primaryUploadTask?.totalParts,
+      primaryCompletedETags: primaryUploadTask != null
+          ? Map<int, String>.from(primaryUploadTask!.completedETags)
+          : null,
+      primaryFileName: primarySelectedFile?.name ?? movieFileName,
+      primaryFileSize: primarySelectedFile?.size,
+      primaryFileType: primarySelectedFile?.type,
+      primaryFileLastModified: primarySelectedFile?.lastModified,
+      teaserFileName: teaserSelectedFile?.name ?? teaserFileName,
+      teaserFileSize: teaserSelectedFile?.size,
+      teaserFileType: teaserSelectedFile?.type,
+      teaserFileLastModified: teaserSelectedFile?.lastModified,
+      trailerFileName: trailerSelectedFile?.name ?? trailerFileName,
+      trailerFileSize: trailerSelectedFile?.size,
+      trailerFileType: trailerSelectedFile?.type,
+      trailerFileLastModified: trailerSelectedFile?.lastModified,
+      poster1FileName: poster1Controller.text.trim(),
+      poster2FileName: poster2Controller.text.trim(),
+      poster3FileName: poster3Controller.text.trim(),
+      poster1Url: poster1Controller.text.trim(),
+      poster2Url: poster2Controller.text.trim(),
+      poster3Url: poster3Controller.text.trim(),
+      castDraftName: castNameController.text.trim(),
+      castDraftRole: castRoleController.text.trim(),
+      castDraftDescription: castDescriptionController.text.trim(),
+      castDraftImage: castImageController.text.trim(),
+      crewDraftName: crewNameController.text.trim(),
+      crewDraftRole: crewRoleController.text.trim(),
+      crewDraftImage: crewImageController.text.trim(),
+    );
+  }
+
+  Future<MovieDraft?> saveAsDraft({
+    int currentStep = 0,
+    String formType = 'uploadMovie',
+    int? editContentId,
+  }) async {
+    final draft = await buildCurrentDraft(
+      currentStep: currentStep,
+      formType: formType,
+      editContentId: editContentId,
+    );
+    if (draft == null) return null;
+
+    final saved = await MovieDraftService.saveDraft(draft);
+    _activeDraftId = saved.draftId;
+    if (saved.contentId != null && saved.contentId! > 0) {
+      _activeContentId = saved.contentId.toString();
+    }
+    notifyListeners();
+    return saved;
+  }
+
+  Future<void> loadFromDraft(MovieDraft draft, [BuildContext? context]) async {
+    disposeData();
+
+    _activeDraftId = draft.draftId;
+    _activeContentId = draft.contentId?.toString();
+
+    typeController.text = draft.contentType;
+    titleController.text = draft.title;
+    descriptionController.text = draft.description;
+    if (draft.price > 0) priceController.text = draft.price.toString();
+    if (draft.runtime > 0) runTimeController.text = draft.runtime.toString();
+    releaseDateController.text = draft.releaseDate;
+    ageRatingController.text = draft.ageRating;
+    rentalDurationController.text = draft.rentalDuration;
+    rentlDurationController.text = draft.rentalDuration;
+    if (draft.numberOfAttempt > 0) {
+      numberOfAttemptController.text = draft.numberOfAttempt.toString();
+    }
+    if (draft.fullAttempt > 0) {
+      fullAttemptController.text = draft.fullAttempt.toString();
+    }
+    censorCertificateController.text = draft.sensorCertificate;
+    _isFeatured = draft.isFeatured;
+    _isDownloadable = draft.isDownloadable;
+    _isRegistrationFeePaid = draft.isPaid;
+
+    registrationPaymentIdController.text = draft.registrationPaymentId;
+    registrationPaymentDateController.text = draft.registrationPaymentDate;
+    registrationAmountPaidController.text = draft.registrationAmountPaid;
+    registrationPlanTypeController.text = draft.registrationPlanType;
+    registrationValidityController.text = draft.registrationValidity;
+    registrationPaymentMethodController.text = draft.registrationPaymentMethod;
+
+    agreementDocumentUrlController.text = draft.agreementDocumentUrl;
+    agreementSignedDateController.text = draft.agreementSignedDate;
+
+    if (draft.director.isNotEmpty) {
+      directorController.text = draft.director;
+    }
+
+    // In-progress cast & crew drafts
+    if (draft.castDraftName != null && draft.castDraftName!.isNotEmpty) {
+      castNameController.text = draft.castDraftName!;
+    }
+    if (draft.castDraftRole != null && draft.castDraftRole!.isNotEmpty) {
+      castRoleController.text = draft.castDraftRole!;
+    }
+    if (draft.castDraftDescription != null && draft.castDraftDescription!.isNotEmpty) {
+      castDescriptionController.text = draft.castDraftDescription!;
+    }
+    if (draft.castDraftImage != null && draft.castDraftImage!.isNotEmpty) {
+      castImageController.text = draft.castDraftImage!;
+    }
+    if (draft.crewDraftName != null && draft.crewDraftName!.isNotEmpty) {
+      crewNameController.text = draft.crewDraftName!;
+    }
+    if (draft.crewDraftRole != null && draft.crewDraftRole!.isNotEmpty) {
+      crewRoleController.text = draft.crewDraftRole!;
+    }
+    if (draft.crewDraftImage != null && draft.crewDraftImage!.isNotEmpty) {
+      crewImageController.text = draft.crewDraftImage!;
+    }
+
+    // Genres
+    _selectedGeners = List<String>.from(draft.selectedGenres);
+
+    // Languages
+    _selectedLanguages = draft.selectedLanguages
+        .map((m) => LanguageList.fromJson(m))
+        .toList();
+
+    // Cast & Crew
+    _pendingCasts.clear();
+    _pendingCasts.addAll(draft.castList.map((m) =>
+        m.map((k, v) => MapEntry(k.toString(), (v ?? '').toString()))));
+    _pendingCrews.clear();
+    _pendingCrews.addAll(draft.crewList.map((m) =>
+        m.map((k, v) => MapEntry(k.toString(), (v ?? '').toString()))));
+    _directorList = List<String>.from(draft.directorList);
+
+    // Variants
+    draft.languageVariants.forEach((lang, fields) {
+      fields.forEach((k, v) {
+        movieVariantController(lang, k).text = v;
+      });
+    });
+
+    // Subtitles and audio
+    _selectedAudioFormat = List<String>.from(draft.selectedAudioFormat);
+    _selectedSubLanguages = List<String>.from(draft.selectedSubLanguages);
+
+    movieFileName = draft.primaryFileName;
+    teaserFileName = draft.teaserFileName;
+    trailerFileName = draft.trailerFileName;
+
+    // Restore posters
+    if (draft.poster1Url != null && draft.poster1Url!.isNotEmpty) {
+      poster1Controller.text = draft.poster1Url!;
+    }
+    if (draft.poster2Url != null && draft.poster2Url!.isNotEmpty) {
+      poster2Controller.text = draft.poster2Url!;
+    }
+    if (draft.poster3Url != null && draft.poster3Url!.isNotEmpty) {
+      poster3Controller.text = draft.poster3Url!;
+    }
+
+    // Set first variant URLs to main controllers if present
+    for (final v in draft.languageVariants.values) {
+      if ((v['movie'] ?? '').isNotEmpty && movieUrlController.text.isEmpty) {
+        movieUrlController.text = v['movie']!;
+      }
+      if ((v['teaser'] ?? '').isNotEmpty && teaserUrlController.text.isEmpty) {
+        teaserUrlController.text = v['teaser']!;
+      }
+      if ((v['trailer'] ?? '').isNotEmpty &&
+          trailerUrlController.text.isEmpty) {
+        trailerUrlController.text = v['trailer']!;
+      }
+      if ((v['poster1'] ?? '').isNotEmpty && poster1Controller.text.isEmpty) {
+        poster1Controller.text = v['poster1']!;
+      }
+      if ((v['poster2'] ?? '').isNotEmpty && poster2Controller.text.isEmpty) {
+        poster2Controller.text = v['poster2']!;
+      }
+      if ((v['poster3'] ?? '').isNotEmpty && poster3Controller.text.isEmpty) {
+        poster3Controller.text = v['poster3']!;
+      }
+    }
+
+    // Restore upload progress info
+    if (draft.uploadProgress > 0 || draft.uploadStatus != 'idle') {
+      final state = MultipartUploadState.values.firstWhere(
+        (s) => s.name == draft.uploadStatus,
+        orElse: () => MultipartUploadState.paused,
+      );
+      primaryUploadProgressInfo = MultipartProgressInfo(
+        state: state,
+        percentage: draft.uploadProgress,
+        uploadedBytes: 0,
+        totalBytes: draft.primaryFileSize ?? 0,
+        completedParts: draft.primaryCompletedETags?.length ?? 0,
+        totalParts: draft.primaryTotalParts ?? 0,
+        speedBytesPerSec: 0,
+        remainingSeconds: 0,
+        localTaskId: draft.primaryUploadTaskId ?? 'primary_${draft.draftId}',
+        errorMessage: draft.uploadErrorMessage,
+      );
+      movieUploadProgress = (draft.uploadProgress / 100.0).clamp(0.0, 1.0);
+    }
+
     notifyListeners();
   }
+
+  /// Checks if a local draft exists for the given formType.
+  Future<MovieDraft?> checkExistingDraftForForm(
+    String formType, {
+    int? mediaHouseId,
+  }) async {
+    final mId = mediaHouseId ??
+        (await LocalSharePreferences().getMediaHouse())?.id ??
+        0;
+    final drafts = await MovieDraftService.getDraftsByFormType(
+      formType,
+      mediaHouseId: mId,
+    );
+    return drafts.isNotEmpty ? drafts.first : null;
+  }
+
+  /// Checks if a local draft exists for a specific content record (Edit Content / Edit Movie).
+  Future<MovieDraft?> checkExistingDraftForContent(
+    int contentId, {
+    String formType = 'editMovie',
+    int? mediaHouseId,
+  }) async {
+    final mId = mediaHouseId ??
+        (await LocalSharePreferences().getMediaHouse())?.id ??
+        0;
+    return MovieDraftService.getDraftByContentId(
+      contentId,
+      formType: formType,
+      mediaHouseId: mId,
+    );
+  }
+
+  /// Deletes the currently active draft if present.
+  Future<bool> deleteActiveDraft() async {
+    final dId = _activeDraftId;
+    if (dId == null || dId.isEmpty) return false;
+    final success = await MovieDraftService.deleteDraft(dId);
+    _activeDraftId = null;
+    notifyListeners();
+    return success;
+  }
+  Future<bool> abortTrailerMultipartUpload({BuildContext? context}) async {
+    final task = trailerUploadTask;
+    bool success = true;
+    if (task != null) {
+      success = await task.abort();
+    }
+    if (success) {
+      trailerUploadTask = null;
+      trailerUploadProgressInfo = null;
+      trailerSelectedFile = null;
+      trailerUploadProgress = 0.0;
+      _isTrailerUploading = false;
+      trailerUrlController.clear();
+      for (final langMap in _movieVariantControllers.values) {
+        langMap['trailer']?.clear();
+      }
+      notifyListeners();
+      if (context != null && context.mounted) {
+        CustomToast.show(context, "Upload cancelled successfully.", isSuccess: true);
+      }
+    } else {
+      notifyListeners();
+      if (context != null && context.mounted) {
+        CustomToast.show(context, "Unable to cancel the upload. Please try again.", isSuccess: false);
+      }
+    }
+    return success;
+  }
+
+  Future<bool> abortAllActiveMultipartUploads({BuildContext? context}) async {
+    final futures = <Future<bool>>[];
+    if (primaryUploadTask != null &&
+        primaryUploadTask!.state != MultipartUploadState.completed &&
+        primaryUploadTask!.state != MultipartUploadState.aborted) {
+      futures.add(abortPrimaryMultipartUpload());
+    }
+    if (teaserUploadTask != null &&
+        teaserUploadTask!.state != MultipartUploadState.completed &&
+        teaserUploadTask!.state != MultipartUploadState.aborted) {
+      futures.add(abortTeaserMultipartUpload());
+    }
+    if (trailerUploadTask != null &&
+        trailerUploadTask!.state != MultipartUploadState.completed &&
+        trailerUploadTask!.state != MultipartUploadState.aborted) {
+      futures.add(abortTrailerMultipartUpload());
+    }
+    if (futures.isEmpty) return true;
+    final results = await Future.wait(futures);
+    final allSucceeded = !results.contains(false);
+    if (context != null && context.mounted) {
+      if (allSucceeded) {
+        CustomToast.show(context, "Upload cancelled successfully.", isSuccess: true);
+      } else {
+        CustomToast.show(context, "Unable to cancel the upload. Please try again.", isSuccess: false);
+      }
+    }
+    return allSucceeded;
+  }
+
+  bool get isAnyVideoUploading =>
+      _isMovieUploading ||
+      _isTeaserUploading ||
+      _isTrailerUploading ||
+      (primaryUploadTask != null &&
+          (primaryUploadTask!.state == MultipartUploadState.uploading ||
+              primaryUploadTask!.state == MultipartUploadState.resuming ||
+              primaryUploadTask!.state == MultipartUploadState.initiating ||
+              primaryUploadTask!.state == MultipartUploadState.completing ||
+              primaryUploadTask!.state == MultipartUploadState.aborting)) ||
+      (teaserUploadTask != null &&
+          (teaserUploadTask!.state == MultipartUploadState.uploading ||
+              teaserUploadTask!.state == MultipartUploadState.resuming ||
+              teaserUploadTask!.state == MultipartUploadState.initiating ||
+              teaserUploadTask!.state == MultipartUploadState.completing ||
+              teaserUploadTask!.state == MultipartUploadState.aborting)) ||
+      (trailerUploadTask != null &&
+          (trailerUploadTask!.state == MultipartUploadState.uploading ||
+              trailerUploadTask!.state == MultipartUploadState.resuming ||
+              trailerUploadTask!.state == MultipartUploadState.initiating ||
+              trailerUploadTask!.state == MultipartUploadState.completing ||
+              trailerUploadTask!.state == MultipartUploadState.aborting));
+
+  bool get hasActiveOrIncompleteUploads =>
+      (primaryUploadTask != null &&
+          primaryUploadTask!.state != MultipartUploadState.completed &&
+          primaryUploadTask!.state != MultipartUploadState.aborted) ||
+      (teaserUploadTask != null &&
+          teaserUploadTask!.state != MultipartUploadState.completed &&
+          teaserUploadTask!.state != MultipartUploadState.aborted) ||
+      (trailerUploadTask != null &&
+          trailerUploadTask!.state != MultipartUploadState.completed &&
+          trailerUploadTask!.state != MultipartUploadState.aborted);
   
   final TextEditingController typeController = TextEditingController();
   final TextEditingController runTimeController = TextEditingController();
@@ -4156,6 +4650,17 @@ bytesLength: null
     _isAgreementUploading = false;
     _agreementUploadProgress = 0.0;
     _agreementFileName = null;
+    _activeDraftId = null;
+    _activeContentId = null;
+    primarySelectedFile = null;
+    teaserSelectedFile = null;
+    trailerSelectedFile = null;
+    primaryUploadTask = null;
+    teaserUploadTask = null;
+    trailerUploadTask = null;
+    primaryUploadProgressInfo = null;
+    teaserUploadProgressInfo = null;
+    trailerUploadProgressInfo = null;
 
     notifyListeners();
   }
@@ -4540,6 +5045,11 @@ BODY: $responseBody
     _movieVariantUploading[variantKey] = false;
 
     if (field == 'movie' || field == 'video') {
+      if (primaryUploadTask != null &&
+          primaryUploadTask!.state != MultipartUploadState.completed &&
+          primaryUploadTask!.state != MultipartUploadState.aborted) {
+        primaryUploadTask!.abort();
+      }
       movieUrlController.clear();
       movieFileName = null;
       _isMovieUploading = false;
@@ -4548,7 +5058,16 @@ BODY: $responseBody
       primarySelectedFile = null;
       primaryUploadTask = null;
       _movieVariantDurations.remove(language);
+      for (final langMap in _movieVariantControllers.values) {
+        langMap['movie']?.clear();
+        langMap['video']?.clear();
+      }
     } else if (field == 'teaser') {
+      if (teaserUploadTask != null &&
+          teaserUploadTask!.state != MultipartUploadState.completed &&
+          teaserUploadTask!.state != MultipartUploadState.aborted) {
+        teaserUploadTask!.abort();
+      }
       teaserUrlController.clear();
       teaserFileName = null;
       _isTeaserUploading = false;
@@ -4556,7 +5075,15 @@ BODY: $responseBody
       teaserUploadProgressInfo = null;
       teaserSelectedFile = null;
       teaserUploadTask = null;
+      for (final langMap in _movieVariantControllers.values) {
+        langMap['teaser']?.clear();
+      }
     } else if (field == 'trailer') {
+      if (trailerUploadTask != null &&
+          trailerUploadTask!.state != MultipartUploadState.completed &&
+          trailerUploadTask!.state != MultipartUploadState.aborted) {
+        trailerUploadTask!.abort();
+      }
       trailerUrlController.clear();
       trailerFileName = null;
       _isTrailerUploading = false;
@@ -4564,6 +5091,9 @@ BODY: $responseBody
       trailerUploadProgressInfo = null;
       trailerSelectedFile = null;
       trailerUploadTask = null;
+      for (final langMap in _movieVariantControllers.values) {
+        langMap['trailer']?.clear();
+      }
     } else if (field == 'poster1') {
       poster1Controller.clear();
       poster1UploadProgress = 0.0;
@@ -4582,6 +5112,35 @@ BODY: $responseBody
       _agreementUploadProgress = 0.0;
     }
 
+    notifyListeners();
+  }
+
+  void resetVideoUploadStateByLabel(String label) {
+    if (label == "Trailer File" || label == "trailer") {
+      _isTrailerUploading = false;
+      trailerUploadProgress = 0.0;
+      trailerUploadProgressInfo = null;
+      for (final key in _movieVariantUploading.keys.where((k) => k.endsWith(':trailer')).toList()) {
+        _movieVariantUploading[key] = false;
+        _movieVariantUploadProgress[key] = 0.0;
+      }
+    } else if (label == "Teaser File" || label == "teaser") {
+      _isTeaserUploading = false;
+      teaserUploadProgress = 0.0;
+      teaserUploadProgressInfo = null;
+      for (final key in _movieVariantUploading.keys.where((k) => k.endsWith(':teaser')).toList()) {
+        _movieVariantUploading[key] = false;
+        _movieVariantUploadProgress[key] = 0.0;
+      }
+    } else if (label == "Movie File" || label == "Video File" || label == "movie" || label == "video") {
+      _isMovieUploading = false;
+      movieUploadProgress = 0.0;
+      primaryUploadProgressInfo = null;
+      for (final key in _movieVariantUploading.keys.where((k) => k.endsWith(':movie') || k.endsWith(':video')).toList()) {
+        _movieVariantUploading[key] = false;
+        _movieVariantUploadProgress[key] = 0.0;
+      }
+    }
     notifyListeners();
   }
 
@@ -4996,8 +5555,30 @@ BODY: $responseBody
           ..views = 0;
 
         try {
+          final saveStartTime = DateTime.now().toIso8601String();
+          final saveStopwatch = Stopwatch()..start();
+          debugPrint('''
+[MovieUpload] Final Movie Save
+endpoint: ${ApiConstant.saveVideo}
+method: POST
+startTime: $saveStartTime
+title: ${saveContent.title}
+language: $name
+teaserUrl: ${saveContent.teaserUrl}
+trailerUrl: ${saveContent.trailerUrl}
+videoUrl: ${variant['movie']?.text ?? ''}''');
+
           final response = await ApiHelper()
               .postApiWithBody(ApiConstant.saveVideo, saveContent.toJson());
+          saveStopwatch.stop();
+
+          debugPrint('''
+[MovieUpload] Final Movie Save Response
+statusCode: ${response.statusCode}
+success: ${response.statusCode == 200}
+durationMs: ${saveStopwatch.elapsedMilliseconds}ms
+body: ${response.body}''');
+
           if (response.statusCode == 200) {
             final parsed = AddVideoResponse.fromJson(jsonDecode(response.body));
             var saved = parsed.isSuccess == true;
@@ -5015,7 +5596,8 @@ BODY: $responseBody
           } else {
             results[name] = false;
           }
-        } catch (_) {
+        } catch (e) {
+          debugPrint('[MovieUpload] Final Movie Save Failed: $e');
           results[name] = false;
         }
       }

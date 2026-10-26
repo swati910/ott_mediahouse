@@ -116,14 +116,15 @@ class MultipartUploadProgressWidget extends StatelessWidget {
                   color: theme.canvasColor.withOpacity(0.7),
                 ),
               ),
-              if (info.totalParts > 0)
+              if (info.totalParts > 0) ...[
                 Text(
-                  'Parts: ${info.completedParts}/${info.totalParts}',
+                  'Parts: ${info.completedParts}/${info.totalParts} (${max(0, info.totalParts - info.completedParts)} remaining)',
                   style: TextStyle(
                     fontSize: 12,
                     color: theme.canvasColor.withOpacity(0.7),
                   ),
                 ),
+              ],
             ],
           ),
           if (info.state == MultipartUploadState.uploading) ...[
@@ -196,61 +197,81 @@ class MultipartUploadProgressWidget extends StatelessWidget {
 
           /// Control Buttons
           const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              if (info.state == MultipartUploadState.uploading ||
-                  info.state == MultipartUploadState.resuming) ...[
-                OutlinedButton.icon(
-                  onPressed: onPause,
-                  icon: const Icon(Icons.pause, size: 16),
-                  label: const Text('Pause'),
-                  style: OutlinedButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
+          Align(
+            alignment: Alignment.centerRight,
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (info.state == MultipartUploadState.uploading ||
+                    info.state == MultipartUploadState.resuming) ...[
+                  OutlinedButton.icon(
+                    onPressed: onPause,
+                    icon: const Icon(Icons.pause, size: 16),
+                    label: const Text('Pause'),
+                    style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-              ],
-              if (info.state == MultipartUploadState.paused) ...[
-                ElevatedButton.icon(
-                  onPressed: onResume,
-                  icon: const Icon(Icons.play_arrow, size: 16),
-                  label: const Text('Resume'),
-                  style: ElevatedButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
+                ],
+                if (info.state == MultipartUploadState.paused) ...[
+                  ElevatedButton.icon(
+                    onPressed: onResume,
+                    icon: const Icon(Icons.play_arrow, size: 16),
+                    label: const Text('Resume'),
+                    style: ElevatedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-              ],
-              if (info.state == MultipartUploadState.failed) ...[
-                ElevatedButton.icon(
-                  onPressed: onRetry,
-                  icon: const Icon(Icons.refresh, size: 16),
-                  label: const Text('Retry'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: theme.primaryColor,
-                    foregroundColor: Colors.white,
-                    visualDensity: VisualDensity.compact,
+                ],
+                if (info.state == MultipartUploadState.failed) ...[
+                  ElevatedButton.icon(
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('Retry'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: theme.primaryColor,
+                      foregroundColor: Colors.white,
+                      visualDensity: VisualDensity.compact,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-              ],
-              if (info.state == MultipartUploadState.initiating ||
-                  info.state == MultipartUploadState.uploading ||
-                  info.state == MultipartUploadState.paused ||
-                  info.state == MultipartUploadState.resuming ||
-                  info.state == MultipartUploadState.failed) ...[
-                OutlinedButton.icon(
-                  onPressed: () => _confirmAbort(context),
-                  icon: const Icon(Icons.cancel, size: 16, color: Colors.redAccent),
-                  label: const Text('Cancel Upload', style: TextStyle(color: Colors.redAccent)),
-                  style: OutlinedButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    side: const BorderSide(color: Colors.redAccent),
+                ],
+                if (info.state == MultipartUploadState.aborting) ...[
+                  ElevatedButton.icon(
+                    onPressed: null,
+                    icon: const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
+                      ),
+                    ),
+                    label: const Text('Cancelling...'),
+                    style: ElevatedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                    ),
                   ),
-                ),
+                ] else if (info.state == MultipartUploadState.initiating ||
+                    info.state == MultipartUploadState.uploading ||
+                    info.state == MultipartUploadState.paused ||
+                    info.state == MultipartUploadState.resuming ||
+                    info.state == MultipartUploadState.failed) ...[
+                  OutlinedButton.icon(
+                    onPressed: () => _confirmAbort(context),
+                    icon: const Icon(Icons.cancel,
+                        size: 16, color: Colors.redAccent),
+                    label: const Text('Cancel Upload',
+                        style: TextStyle(color: Colors.redAccent)),
+                    style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      side: const BorderSide(color: Colors.redAccent),
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ],
       ),
@@ -261,9 +282,9 @@ class MultipartUploadProgressWidget extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Abort Upload?'),
+        title: const Text('Cancel Upload?'),
         content: const Text(
-          'Are you sure you want to abort this upload session? Upload progress for this video will be cleared.',
+          'Are you sure you want to cancel and abort this upload? Active parts will be stopped and server upload resources will be cleaned up.',
         ),
         actions: [
           TextButton(
@@ -276,7 +297,7 @@ class MultipartUploadProgressWidget extends StatelessWidget {
               Navigator.pop(ctx);
               onAbort?.call();
             },
-            child: const Text('Yes, Abort Upload'),
+            child: const Text('Yes, Cancel Upload'),
           ),
         ],
       ),
@@ -301,6 +322,8 @@ class MultipartUploadProgressWidget extends StatelessWidget {
         return Colors.green;
       case MultipartUploadState.failed:
         return Colors.red;
+      case MultipartUploadState.aborting:
+        return Colors.redAccent;
       case MultipartUploadState.aborted:
         return Colors.grey;
     }
@@ -324,6 +347,8 @@ class MultipartUploadProgressWidget extends StatelessWidget {
         return Icons.check_circle;
       case MultipartUploadState.failed:
         return Icons.error;
+      case MultipartUploadState.aborting:
+        return Icons.hourglass_top;
       case MultipartUploadState.aborted:
         return Icons.cancel;
     }
@@ -347,6 +372,8 @@ class MultipartUploadProgressWidget extends StatelessWidget {
         return 'Upload Completed!';
       case MultipartUploadState.failed:
         return 'Upload Failed';
+      case MultipartUploadState.aborting:
+        return 'Cancelling upload...';
       case MultipartUploadState.aborted:
         return 'Upload Aborted';
     }

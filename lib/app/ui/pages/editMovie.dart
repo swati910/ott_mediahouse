@@ -14,6 +14,9 @@ import 'uploadContent_page/upload_video.dart';
 import '../../core/content/content_type.dart';
 import '../../core/upload/s3_multipart_upload_service.dart';
 import '../../core/utils/image_validation_service.dart';
+import '../dialog/discard_changes_dialog.dart';
+import '../../core/draft/movie_draft.dart';
+import '../../core/draft/movie_draft_service.dart';
 
 class EditVideoMovie extends StatefulWidget {
   final Content movie;
@@ -31,6 +34,8 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
   bool _isLoadingMovie = true;
   bool _hasError = false;
   String _errorMessage = '';
+  MovieDraft? _availableDraft;
+  bool _showDraftBanner = false;
 
   int get _totalSteps => 3;
   int get _lastPageIndex => _totalSteps - 1;
@@ -92,6 +97,20 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
         _errorMessage = 'Unable to fetch complete movie details from backend.';
       }
       await provider.fetchCastByContentId(widget.movie.id!);
+
+      // Check if a saved local draft exists for this content ID
+      try {
+        final existing = await provider.checkExistingDraftForContent(
+          widget.movie.id!,
+          formType: 'editMovie',
+        );
+        if (mounted && existing != null) {
+          setState(() {
+            _availableDraft = existing;
+            _showDraftBanner = true;
+          });
+        }
+      } catch (_) {}
     } catch (e) {
       if (mounted) {
         _hasError = true;
@@ -106,13 +125,99 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
     }
   }
 
+  Future<void> _resumeAvailableDraft(VideoProvider provider) async {
+    final draft = _availableDraft;
+    if (draft == null) return;
+    await provider.loadFromDraft(draft, context);
+    await provider.fetchGroupedLanguages();
+    if (draft.currentStep > 0 && draft.currentStep < _totalSteps) {
+      setState(() => _currentPage = draft.currentStep);
+      _pageController.jumpToPage(draft.currentStep);
+    }
+    setState(() => _showDraftBanner = false);
+    if (mounted) {
+      CustomToast.show(context, "Draft restored successfully.", isSuccess: true);
+    }
+  }
+
+  Future<void> _discardAvailableDraft(VideoProvider provider) async {
+    if (_availableDraft != null) {
+      await MovieDraftService.deleteDraft(_availableDraft!.draftId);
+      setState(() {
+        _availableDraft = null;
+        _showDraftBanner = false;
+      });
+      if (mounted) {
+        CustomToast.show(context, "Saved draft discarded.", isSuccess: true);
+      }
+    }
+  }
+
+  Future<void> _handleCloseAttempt(VideoProvider provider) async {
+    if (_isSubmitting) return;
+
+    if (!provider.hasActiveOrIncompleteUploads && !provider.hasUnsavedChanges) {
+      Navigator.pop(context);
+      return;
+    }
+
+    final action = await DiscardChangesDialog.show(context);
+    if (action == null || action == DiscardDialogAction.keepEditing) {
+      return;
+    }
+
+    if (action == DiscardDialogAction.discard) {
+      if (_availableDraft != null) {
+        await MovieDraftService.deleteDraft(_availableDraft!.draftId);
+      }
+      if (provider.activeDraftId != null) {
+        await MovieDraftService.deleteDraft(provider.activeDraftId!);
+      }
+      await provider.abortAllActiveMultipartUploads();
+      if (mounted) {
+        Navigator.pop(context);
+      }
+      return;
+    }
+
+    if (action == DiscardDialogAction.saveDraft) {
+      final savedDraft = await provider.saveAsDraft(
+        currentStep: _currentPage,
+        formType: 'editMovie',
+        editContentId: widget.movie.id!,
+      );
+      if (!mounted) return;
+      if (savedDraft != null) {
+        CustomToast.show(
+          context,
+          "Draft saved locally.",
+          isSuccess: true,
+        );
+        Navigator.pop(context);
+      } else {
+        CustomToast.show(
+          context,
+          "Failed to save draft. Please try again.",
+          isSuccess: false,
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     ThemeProvider themeProvider =
         Provider.of<ThemeProvider>(context, listen: false);
     var selectedThemeData = themeProvider.getTheme;
-    return Scaffold(
-      backgroundColor: Colors.transparent,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        final provider = context.read<VideoProvider>();
+        _handleCloseAttempt(provider);
+      },
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
       body: Center(
         child: Container(
           constraints: BoxConstraints(
@@ -203,6 +308,8 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
               children: [
                 _buildHeader(selectedThemeData),
                 _buildProgressIndicator(selectedThemeData),
+                if (_showDraftBanner && _availableDraft != null)
+                  _buildDraftBanner(selectedThemeData, provider),
                 Expanded(
                   child: PageView(
                     controller: _pageController,
@@ -217,6 +324,85 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
             );
           }),
         ),
+      ),
+    ),
+  );
+  }
+
+  Widget _buildDraftBanner(ThemeData theme, VideoProvider provider) {
+    if (_availableDraft == null) return const SizedBox.shrink();
+    final isDark = theme.brightness == Brightness.dark;
+    final bannerBg =
+        isDark ? const Color(0xFF1F2937) : const Color(0xFFEFF6FF);
+    final borderColor =
+        isDark ? const Color(0xFF374151) : const Color(0xFFBFDBFE);
+    final textColor = isDark ? Colors.white : const Color(0xFF1E3A8A);
+
+    final savedTime = _availableDraft!.lastModified;
+    final timeStr =
+        "${savedTime.day.toString().padLeft(2, '0')}/${savedTime.month.toString().padLeft(2, '0')}/${savedTime.year} ${savedTime.hour.toString().padLeft(2, '0')}:${savedTime.minute.toString().padLeft(2, '0')}";
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: bannerBg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor, width: 1),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.history_toggle_off_rounded,
+              color: theme.primaryColor, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              "Saved draft changes available for this movie from $timeStr.",
+              style: TextStyle(
+                color: textColor,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 10),
+          ElevatedButton(
+            onPressed: () => _resumeAvailableDraft(provider),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: theme.primaryColor,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle:
+                  const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6)),
+            ),
+            child: const Text("Resume Draft"),
+          ),
+          const SizedBox(width: 6),
+          TextButton(
+            onPressed: () => _discardAvailableDraft(provider),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.redAccent,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: const TextStyle(fontSize: 12),
+            ),
+            child: const Text("Discard"),
+          ),
+          const SizedBox(width: 6),
+          IconButton(
+            icon: Icon(Icons.close, size: 16, color: textColor.withOpacity(0.6)),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            onPressed: () => setState(() => _showDraftBanner = false),
+            tooltip: "Dismiss",
+          ),
+        ],
       ),
     );
   }
@@ -685,7 +871,9 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
                                 ),
                                 const SizedBox(width: 6),
                                 InkWell(
-                                  onTap: () {
+                                  onTap: () async {
+                                    final confirmed = await UploadMediaHelpers.confirmDeleteMedia(context, label);
+                                    if (!confirmed) return;
                                     provider.clearMovieVariant(language, field);
                                     CustomToast.show(
                                       context,
@@ -728,7 +916,7 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
             onPause: () => provider.pauseTeaserMultipartUpload(),
             onResume: () => provider.resumeTeaserMultipartUpload(),
             onRetry: () => provider.retryTeaserMultipartUpload(),
-            onAbort: () => provider.abortTeaserMultipartUpload(),
+            onAbort: () => provider.abortTeaserMultipartUpload(context: context),
           ),
         ],
         if (field == 'trailer' &&
@@ -741,7 +929,7 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
             onPause: () => provider.pauseTrailerMultipartUpload(),
             onResume: () => provider.resumeTrailerMultipartUpload(),
             onRetry: () => provider.retryTrailerMultipartUpload(),
-            onAbort: () => provider.abortTrailerMultipartUpload(),
+            onAbort: () => provider.abortTrailerMultipartUpload(context: context),
           ),
         ],
         if ((field == 'movie' || field == 'video') &&
@@ -754,7 +942,7 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
             onPause: () => provider.pausePrimaryMultipartUpload(),
             onResume: () => provider.resumePrimaryMultipartUpload(),
             onRetry: () => provider.retryPrimaryMultipartUpload(),
-            onAbort: () => provider.abortPrimaryMultipartUpload(),
+            onAbort: () => provider.abortPrimaryMultipartUpload(context: context),
           ),
         ],
       ],
@@ -1159,7 +1347,7 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
           top: 5,
           left: 5,
           child: IconButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => _handleCloseAttempt(context.read<VideoProvider>()),
             style: IconButton.styleFrom(
               backgroundColor:
                   themeData.scaffoldBackgroundColor.withValues(alpha: 0.35),
@@ -1230,6 +1418,31 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
               ),
             ),
           if (_currentPage > 0) const SizedBox(width: 16),
+          TextButton.icon(
+            onPressed: _isSubmitting
+                ? null
+                : () async {
+                    final saved = await provider.saveAsDraft(
+                      currentStep: _currentPage,
+                      formType: 'editMovie',
+                      editContentId: widget.movie.id!,
+                    );
+                    if (!mounted) return;
+                    if (saved != null) {
+                      CustomToast.show(
+                        context,
+                        "Draft saved locally.",
+                        isSuccess: true,
+                      );
+                    }
+                  },
+            icon: const Icon(Icons.bookmark_outline, size: 18),
+            label: const Text("Save Draft"),
+            style: TextButton.styleFrom(
+              foregroundColor: themeData.canvasColor.withOpacity(0.8),
+            ),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: ElevatedButton(
               onPressed: _isSubmitting

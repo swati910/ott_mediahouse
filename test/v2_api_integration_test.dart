@@ -4,7 +4,6 @@ import 'package:media_house/app/core/constant/api_constant.dart';
 import 'package:media_house/data/models/response/getMediaHouseResponse.dart';
 import 'package:media_house/data/models/response/mediaHouseDashboardCount.dart';
 import 'package:media_house/data/models/response/movie_transaction.dart';
-import 'package:media_house/domain/entities/mediaHouse.dart';
 
 void main() {
   group('V2 API Models & JSON Integration Tests', () {

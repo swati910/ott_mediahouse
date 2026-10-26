@@ -32,6 +32,7 @@ abstract final class HiveBoxes {
   static const profileCache = 'mh_profile_cache_v1';
   static const supportCache = 'mh_support_cache_v1';
   static const lookupCache = 'mh_lookup_cache_v1';
+  static const localDrafts = 'mh_local_drafts_v1';
 
   static const all = <String>[
     dashboardCache,

@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:universal_html/html.dart' as html;
 
@@ -19,6 +21,7 @@ enum MultipartUploadState {
   completing,
   completed,
   failed,
+  aborting,
   aborted,
 }
 
@@ -34,6 +37,8 @@ class MultipartProgressInfo {
   final String? errorMessage;
   final String localTaskId;
   final String videoUrl;
+
+  bool get isAborting => state == MultipartUploadState.aborting;
 
   MultipartProgressInfo({
     required this.state,
@@ -106,6 +111,8 @@ class S3MultipartUploadTask {
   String mimeType = '';
   int lastModified = 0;
   String? errorMessage;
+  String? _lastFailureReason;
+  String? get lastFailureReason => _lastFailureReason;
   String videoUrl = '';
 
   final Map<int, String> completedETags = {};
@@ -116,6 +123,16 @@ class S3MultipartUploadTask {
   bool _pauseRequested = false;
   bool _cancelRequested = false;
   bool _completingInProgress = false;
+  bool _isAborting = false;
+  bool get isAborting => _isAborting;
+
+  /// When true, forces session-based abort (`DELETE /api/video/multipart/{uploadSessionId}`).
+  /// By default (false), uses `POST /api/video/multipart/abort` when S3 uploadId and key are available.
+  static bool preferSessionIdAbort = false;
+
+  /// When false (default), uploads send PUT directly to the Amazon S3 presigned URL.
+  /// When true, rewrites the URL to route through the local CORS dev proxy on port 8089.
+  static bool useLocalDevProxy = false;
 
   int _uploadedBytesConfirmed = 0;
   DateTime? _uploadStartTime;
@@ -180,14 +197,44 @@ class S3MultipartUploadTask {
   DateTime? _lastProgressLogTime;
 
   void notifyProgress() {
-    int currentUploadedBytes = _uploadedBytesConfirmed;
-    partBytesInFlight.forEach((_, bytes) {
-      currentUploadedBytes += bytes;
-    });
-    currentUploadedBytes = min(currentUploadedBytes, fileSize);
+    int inFlightBytes = 0;
+    if (state == MultipartUploadState.uploading ||
+        state == MultipartUploadState.completing) {
+      partBytesInFlight.forEach((_, bytes) {
+        inFlightBytes += bytes;
+      });
+    }
 
-    double pct = fileSize > 0 ? (currentUploadedBytes / fileSize) * 100.0 : 0.0;
-    pct = pct.clamp(0.0, 100.0);
+    int currentUploadedBytes = _uploadedBytesConfirmed + inFlightBytes;
+    if (fileSize > 0) {
+      currentUploadedBytes = min(currentUploadedBytes, fileSize);
+    }
+
+    double pct = 0.0;
+    if (state == MultipartUploadState.completed) {
+      pct = 100.0;
+      currentUploadedBytes = fileSize;
+    } else if (fileSize > 0) {
+      final rawPct = (currentUploadedBytes / fileSize) * 100.0;
+      // If parts are not all confirmed by Amazon S3, never display 100%!
+      // Cap at 99.0% while upload or completion is in-flight.
+      if (completedETags.length < totalParts) {
+        pct = min(rawPct, 99.0);
+      } else {
+        pct = min(rawPct, 99.9);
+      }
+      pct = pct.clamp(0.0, 99.9);
+    }
+
+    // In failed, aborting, or aborted state, in-flight bytes do NOT count.
+    if (state == MultipartUploadState.failed ||
+        state == MultipartUploadState.aborting ||
+        state == MultipartUploadState.aborted) {
+      currentUploadedBytes = _uploadedBytesConfirmed;
+      pct = fileSize > 0
+          ? ((_uploadedBytesConfirmed / fileSize) * 100.0).clamp(0.0, 99.0)
+          : 0.0;
+    }
 
     double speed = 0.0;
     int remainingSec = 0;
@@ -196,7 +243,7 @@ class S3MultipartUploadTask {
           DateTime.now().difference(_uploadStartTime!).inMilliseconds / 1000.0;
       if (elapsedSec > 0.5 && _bytesUploadedSinceStart > 0) {
         speed = _bytesUploadedSinceStart / elapsedSec;
-        final remainingBytes = fileSize - currentUploadedBytes;
+        final remainingBytes = max(0, fileSize - currentUploadedBytes);
         if (speed > 0) {
           remainingSec = (remainingBytes / speed).ceil();
         }
@@ -219,7 +266,7 @@ class S3MultipartUploadTask {
       final samplePartPct = samplePartSize > 0 ? (sampleBytes / samplePartSize) * 100.0 : 0.0;
 
       debugPrint('''
-========== S3 PART PROGRESS ==========
+[MovieUpload] Part Upload Progress
 partNumber: $samplePart
 bytesSent: $sampleBytes
 partTotalBytes: $samplePartSize
@@ -227,9 +274,7 @@ partProgress: ${samplePartPct.toStringAsFixed(1)}%
 totalUploadedBytes: $currentUploadedBytes
 totalFileBytes: $fileSize
 overallProgress: ${pct.toStringAsFixed(1)}%
-overallPercent: ${pct.toStringAsFixed(1)}%
-activeUploads: ${GlobalS3ConcurrencyLimiter._activeRequests}
-======================================''');
+activeUploads: ${GlobalS3ConcurrencyLimiter._activeRequests}''');
     }
 
     onProgress?.call(MultipartProgressInfo(
@@ -357,23 +402,32 @@ extension: $ext
       final authHdrs = await AuthService.authHeaders();
       final redactedHdrs = _formatHeadersWithAuthRedacted(authHdrs);
 
+      final initiateStopwatch = Stopwatch()..start();
+      final initiateStartTime = DateTime.now().toIso8601String();
       debugPrint('''
-========== MULTIPART INITIATE REQUEST ==========
-URL: ${ApiConstant.multipartInitiate}
-METHOD: POST
-HEADERS: $redactedHdrs
-BODY: ${jsonEncode(payload)}
-=================================================''');
+[MovieUpload] Initiate Request
+endpoint: ${ApiConstant.multipartInitiate}
+method: POST
+startTime: $initiateStartTime
+contentId: $contentId
+fileName: ${targetFile.name}
+fileSize: ${targetFile.size} ($sizeMb MB)
+contentType: $cType
+headers: $redactedHdrs
+payload: ${jsonEncode(payload)}''');
 
       final apiHelper = ApiHelper();
       final response = await apiHelper.postApiWithBody(
           ApiConstant.multipartInitiate, payload);
+      initiateStopwatch.stop();
 
       debugPrint('''
-========== MULTIPART INITIATE RESPONSE ==========
-STATUS: ${response.statusCode}
-BODY: ${response.body}
-==================================================''');
+[MovieUpload] Initiate Response
+endpoint: ${ApiConstant.multipartInitiate}
+statusCode: ${response.statusCode}
+success: ${response.statusCode == 200 || response.statusCode == 201}
+durationMs: ${initiateStopwatch.elapsedMilliseconds}ms
+body: ${response.body}''');
 
       if (response.statusCode != 200 && response.statusCode != 201) {
         final msg = _extractErrorMessage(response.body,
@@ -395,15 +449,18 @@ BODY: ${response.body}
       key = data['key']?.toString() ?? '';
       partSize =
           data['partSize'] != null ? int.parse(data['partSize'].toString()) : 0;
+      if (partSize <= 0) {
+        // Amazon S3 requires >= 5MB for non-final parts. Default to 10MB chunk size.
+        partSize = 10 * 1024 * 1024;
+      }
 
       final serverTotalParts = data['totalParts'] != null
           ? int.parse(data['totalParts'].toString())
           : 0;
-      if (partSize > 0) {
-        final calculatedParts = (targetFile.size / partSize).ceil();
-        totalParts = serverTotalParts > 0 ? serverTotalParts : calculatedParts;
-      } else {
-        totalParts = serverTotalParts;
+      final calculatedParts = (targetFile.size / partSize).ceil();
+      totalParts = serverTotalParts > 0 ? serverTotalParts : calculatedParts;
+      if (totalParts <= 0) {
+        totalParts = 1;
       }
 
       debugPrint('''
@@ -567,8 +624,9 @@ BODY: ${response.body}
         if (_cancelRequested) {
           return;
         }
+        final detail = _lastFailureReason != null ? ': $_lastFailureReason' : '';
         _setError(
-            'Part upload failed after multiple retry attempts. You can click Retry to continue.');
+            'Part upload failed after multiple retry attempts$detail. You can click Retry to continue.');
         return;
       }
 
@@ -598,26 +656,33 @@ BODY: ${response.body}
     final authHdrs = await AuthService.authHeaders();
     final redactedHdrs = _formatHeadersWithAuthRedacted(authHdrs);
 
+    final presignStopwatch = Stopwatch()..start();
+    final presignStartTime = DateTime.now().toIso8601String();
     debugPrint('''
-========== PRESIGN REQUEST ==========
+[MovieUpload] Presign Request
+endpoint: ${ApiConstant.multipartPresign}
+method: POST
+startTime: $presignStartTime
 uploadSessionId: $uploadSessionId
+uploadId: $uploadId
+s3Key: $key
 partNumbers: $partNumbers
 numberOfPartsRequested: ${partNumbers.length}
-URL: ${ApiConstant.multipartPresign}
-METHOD: POST
-HEADERS: $redactedHdrs
-BODY: ${jsonEncode(payload)}
-=====================================''');
+headers: $redactedHdrs
+payload: ${jsonEncode(payload)}''');
 
     final apiHelper = ApiHelper();
     final response =
         await apiHelper.postApiWithBody(ApiConstant.multipartPresign, payload);
+    presignStopwatch.stop();
 
     debugPrint('''
-========== PRESIGN RESPONSE ==========
-status: ${response.statusCode}
-BODY: ${response.body}
-======================================''');
+[MovieUpload] Presign Response
+endpoint: ${ApiConstant.multipartPresign}
+statusCode: ${response.statusCode}
+success: ${response.statusCode == 200 || response.statusCode == 201}
+durationMs: ${presignStopwatch.elapsedMilliseconds}ms
+body: ${response.body}''');
 
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception('Presign API returned HTTP ${response.statusCode}');
@@ -719,28 +784,67 @@ partNumbersReturned: ${result.keys.toList()}
     final partBlob = targetFile.slice(startByte, endByte);
     final chunkSizeMb = (chunkLength / (1024 * 1024)).toStringAsFixed(2);
 
+    final partStartTime = DateTime.now().toIso8601String();
     debugPrint('''
-========== S3 PART START ==========
+[MovieUpload] Part Upload Started
+operation: S3 Presigned Part PUT
+endpoint: ${_sanitizeUrl(url)}
+method: PUT
+uploadSessionId: $uploadSessionId
+s3Key: $key
 partNumber: $partNumber
-startByte: $startByte
-endByte: $endByte
-chunkSize: $chunkLength
-chunkSizeMB: $chunkSizeMb MB
+totalParts: $totalParts
+chunkSize: $chunkLength bytes ($chunkSizeMb MB)
+byteRange: $startByte-$endByte of $fileSize
 attempt: $attempt
-activeUploads: ${GlobalS3ConcurrencyLimiter._activeRequests}
-==================================''');
+startTime: $partStartTime
+activeUploads: ${GlobalS3ConcurrencyLimiter._activeRequests}''');
 
     final completer = Completer<bool>();
     final xhr = html.HttpRequest();
     activeXhrs[partNumber] = xhr;
     final stopwatch = Stopwatch()..start();
 
+    final isLocalhost = kIsWeb &&
+        (html.window.location.hostname == 'localhost' ||
+            html.window.location.hostname == '127.0.0.1');
+
+    final origUri = Uri.tryParse(url);
+    final origHost = origUri?.host ?? 'unknown';
+
+    String targetUrl = url;
+    final bool proxyRewriteDetected = isLocalhost && useLocalDevProxy;
+    if (proxyRewriteDetected) {
+      targetUrl =
+          'http://127.0.0.1:8089/proxy?url=${Uri.encodeComponent(url)}';
+    }
+
+    final targetUri = Uri.tryParse(targetUrl);
+    final finalHost = targetUri?.host ?? 'unknown';
+
+    debugPrint('''
+[MovieUpload] Original Presigned URL Host: $origHost
+[MovieUpload] Final Request Host: $finalHost
+[MovieUpload] Proxy Rewrite Detected: $proxyRewriteDetected''');
+
     // S3 PUT using HttpRequest directly (no generic authorization headers added)
-    xhr.open('PUT', url);
-    final putMime = targetFile.type.isNotEmpty
-        ? targetFile.type
-        : 'application/octet-stream';
-    xhr.setRequestHeader('Content-Type', putMime);
+    xhr.open('PUT', targetUrl);
+
+    // Only set Content-Type header if the presigned URL's signed headers explicitly require it.
+    // For Amazon S3 multipart uploads, chunk parts are raw byte slices where Content-Type is
+    // typically unsigned. Setting an unnecessary Content-Type header causes S3 SignatureDoesNotMatch
+    // or CORS preflight failures when Content-Type is not in S3's AllowedHeaders.
+    final uri = Uri.tryParse(url);
+    final signedHeaders = (uri?.queryParameters['X-Amz-SignedHeaders'] ??
+            uri?.queryParameters['x-amz-signedheaders'] ??
+            '')
+        .toLowerCase();
+    if (signedHeaders.split(';').contains('content-type')) {
+      final putMime = targetFile.type.isNotEmpty
+          ? targetFile.type
+          : 'application/octet-stream';
+      xhr.setRequestHeader('Content-Type', putMime);
+    }
 
     int lastLoaded = 0;
     xhr.upload.onProgress.listen((e) {
@@ -755,7 +859,7 @@ activeUploads: ${GlobalS3ConcurrencyLimiter._activeRequests}
       }
     });
 
-    xhr.onLoad.listen((_) {
+    xhr.onLoad.listen((_) async {
       stopwatch.stop();
       activeXhrs.remove(partNumber);
       final durationMs = stopwatch.elapsedMilliseconds;
@@ -777,46 +881,108 @@ activeUploads: ${GlobalS3ConcurrencyLimiter._activeRequests}
           }
         }
 
-        if (eTag != null && eTag.trim().isNotEmpty) {
-          eTag = _ensureQuotedETag(eTag);
+        // Fallback for missing ETag header:
+        // When S3 CORS configuration does not include <ExposeHeader>ETag</ExposeHeader>,
+        // the browser hides the ETag header from JavaScript. In Amazon S3 multipart uploads,
+        // each part's ETag is ALWAYS the hex-encoded MD5 digest of the uploaded chunk data.
+        if (eTag == null || eTag.trim().isEmpty) {
+          try {
+            final reader = html.FileReader();
+            reader.readAsArrayBuffer(partBlob);
+            await reader.onLoad.first;
+            final dynamic rawResult = reader.result;
+            Uint8List chunkBytes;
+            if (rawResult is ByteBuffer) {
+              chunkBytes = Uint8List.view(rawResult);
+            } else if (rawResult is Uint8List) {
+              chunkBytes = rawResult;
+            } else {
+              chunkBytes = Uint8List.fromList(List<int>.from(rawResult as dynamic));
+            }
+            final md5Hex = md5.convert(chunkBytes).toString();
+            eTag = '"$md5Hex"';
+            debugPrint(
+                '[Direct S3 Upload] ℹ️ ETag header not exposed by S3 CORS; computed MD5 ETag locally: $eTag');
+          } catch (e) {
+            debugPrint('[Direct S3 Upload] ⚠️ Failed to compute chunk MD5: $e');
+          }
         }
 
+        // Secondary fallback: query backend status API which uses S3 ListParts
         if (eTag == null || eTag.trim().isEmpty) {
-          debugPrint('''
-========== S3 PART ERROR ==========
-partNumber: $partNumber
-statusCode: ${xhr.status}
-attempt: $attempt
-error: ETag Header Missing (CORS)
-responseBody: S3 returned HTTP ${xhr.status} but ETag header was not exposed by CORS. Ensure S3 CORS includes <ExposeHeader>ETag</ExposeHeader>
-==================================''');
+          final reconciled = await _reconcileWithStatusApi();
+          if (reconciled && completedETags.containsKey(partNumber)) {
+            eTag = completedETags[partNumber];
+          }
+        }
+
+        if (_cancelRequested ||
+            _isAborting ||
+            state == MultipartUploadState.aborting ||
+            state == MultipartUploadState.aborted) {
+          debugPrint(
+              '[Direct S3 Upload] Part $partNumber arrived after abort/cancel requested; ignoring.');
           completer.complete(false);
           return;
         }
 
-        completedETags[partNumber] = eTag;
+        if (eTag != null && eTag.trim().isNotEmpty) {
+          eTag = _ensureQuotedETag(eTag);
+          completedETags[partNumber] = eTag;
 
-        debugPrint('''
-========== S3 PART SUCCESS ==========
+          debugPrint('''
+[MovieUpload] Part Upload Success
+operation: S3 Presigned Part PUT
+uploadSessionId: $uploadSessionId
+s3Key: $key
 partNumber: $partNumber
+totalParts: $totalParts
 statusCode: ${xhr.status}
-etag: $eTag
+success: true
+eTagPresent: true
+eTag: $eTag
+uploadedPartNumber: $partNumber
 durationMs: ${durationMs}ms
-=====================================''');
+uploadedBytesConfirmed: $_uploadedBytesConfirmed of $fileSize
+completedParts: ${completedETags.length} of $totalParts''');
 
-        _recalculateConfirmedBytes();
-        _saveCurrentSessionRecord();
-        notifyProgress();
-        completer.complete(true);
-      } else {
-        debugPrint('''
-========== S3 PART ERROR ==========
+          _recalculateConfirmedBytes();
+          _saveCurrentSessionRecord();
+          notifyProgress();
+          completer.complete(true);
+        } else {
+          _lastFailureReason =
+              'S3 uploaded part successfully but ETag header was unreadable';
+          debugPrint('''
+[MovieUpload] Part Upload Failed
+operation: S3 Presigned Part PUT
+uploadSessionId: $uploadSessionId
+s3Key: $key
 partNumber: $partNumber
+totalParts: $totalParts
 statusCode: ${xhr.status}
 attempt: $attempt
-error: ${xhr.statusText}
+errorType: Missing ETag
+errorMessage: $_lastFailureReason
+durationMs: ${stopwatch.elapsedMilliseconds}ms''');
+          completer.complete(false);
+        }
+      } else {
+        _lastFailureReason =
+            'S3 returned HTTP ${xhr.status} (${xhr.statusText ?? 'Error'})';
+        debugPrint('''
+[MovieUpload] Part Upload Failed
+operation: S3 Presigned Part PUT
+uploadSessionId: $uploadSessionId
+s3Key: $key
+partNumber: $partNumber
+totalParts: $totalParts
+statusCode: ${xhr.status}
+attempt: $attempt
+errorType: HTTP Error
+errorMessage: $_lastFailureReason
 responseBody: ${xhr.responseText}
-==================================''');
+durationMs: ${stopwatch.elapsedMilliseconds}ms''');
         completer.complete(false);
       }
     });
@@ -824,20 +990,33 @@ responseBody: ${xhr.responseText}
     xhr.onError.listen((_) {
       stopwatch.stop();
       activeXhrs.remove(partNumber);
+      activePartNumbers.remove(partNumber);
+      partBytesInFlight.remove(partNumber);
+      _lastFailureReason =
+          'Network connection interrupted or S3 CORS restriction';
       debugPrint('''
-========== S3 PART ERROR ==========
+[MovieUpload] Part Upload Failed
+operation: S3 Presigned Part PUT
+uploadSessionId: $uploadSessionId
+s3Key: $key
 partNumber: $partNumber
+totalParts: $totalParts
 statusCode: ${xhr.status}
 attempt: $attempt
-error: Network / CORS Error
+targetUrl: ${_sanitizeUrl(targetUrl)}
+errorType: Network / CORS Error
+errorMessage: $_lastFailureReason
 responseBody: ${xhr.responseText}
-==================================''');
+durationMs: ${stopwatch.elapsedMilliseconds}ms''');
       completer.complete(false);
     });
 
     xhr.onAbort.listen((_) {
       stopwatch.stop();
       activeXhrs.remove(partNumber);
+      activePartNumbers.remove(partNumber);
+      partBytesInFlight.remove(partNumber);
+      _lastFailureReason = 'Upload paused or aborted';
       debugPrint(
           '[Direct S3 Upload] ⏹️ [Part $partNumber/$totalParts] S3 PUT aborted.');
       completer.complete(false);
@@ -858,6 +1037,14 @@ responseBody: ${xhr.responseText}
   }
 
   Future<void> _completeUpload() async {
+    if (_cancelRequested ||
+        _isAborting ||
+        state == MultipartUploadState.aborting ||
+        state == MultipartUploadState.aborted) {
+      debugPrint(
+          '[Direct S3 Upload] Abort/cancel requested; skipping completeMultipartUpload.');
+      return;
+    }
     if (_completingInProgress) return;
     _completingInProgress = true;
     state = MultipartUploadState.completing;
@@ -902,33 +1089,38 @@ responseBody: ${xhr.responseText}
       final authHdrs = await AuthService.authHeaders();
       final redactedHdrs = _formatHeadersWithAuthRedacted(authHdrs);
 
+      final completeStopwatch = Stopwatch()..start();
+      final completeStartTime = DateTime.now().toIso8601String();
       debugPrint('''
-========== MULTIPART COMPLETE REQUEST ==========
+[MovieUpload] Complete Request
+endpoint: ${ApiConstant.multipartComplete}
+method: POST
+startTime: $completeStartTime
 uploadSessionId: $uploadSessionId
+uploadId: $uploadId
+s3Key: $key
 totalParts: $totalParts
 completedParts: ${completedETags.length}
-allPartsUploaded: true
 totalUploadedBytes: $_uploadedBytesConfirmed
 totalFileBytes: $fileSize
-s3Key: $key
-URL: ${ApiConstant.multipartComplete}
-METHOD: POST
-HEADERS: $redactedHdrs
-BODY: ${jsonEncode(payload)}
-=============================================== ''');
+headers: $redactedHdrs
+payload: ${jsonEncode(payload)}''');
 
       final apiHelper = ApiHelper();
       final response = await apiHelper.postApiWithBody(
           ApiConstant.multipartComplete, payload);
+      completeStopwatch.stop();
 
       debugPrint('''
-========== MULTIPART COMPLETE RESPONSE ==========
-HTTP STATUS: ${response.statusCode}
+[MovieUpload] Complete Response
+endpoint: ${ApiConstant.multipartComplete}
+statusCode: ${response.statusCode}
 success: ${response.statusCode == 200 || response.statusCode == 201}
-message: ${response.body}
-status: COMPLETED
+durationMs: ${completeStopwatch.elapsedMilliseconds}ms
+uploadSessionId: $uploadSessionId
 s3Key: $key
-=============================================== ''');
+videoUrl: $videoUrl
+body: ${response.body}''');
 
       if (response.statusCode != 200 && response.statusCode != 201) {
         final msg = _extractErrorMessage(response.body,
@@ -983,52 +1175,172 @@ s3Key: $key
     }
   }
 
-  Future<void> abort() async {
+  Future<bool> abort() async {
+    if (_isAborting) {
+      debugPrint(
+          '[MultipartUpload] Cancellation already in progress for taskId: $localTaskId');
+      return true;
+    }
+    _isAborting = true;
     _cancelRequested = true;
     _pauseRequested = true;
+    state = MultipartUploadState.aborting;
+
+    // 1. Stop active browser requests and prevent new parts from starting
+    final stoppedPartsCount = activeXhrs.length;
     activeXhrs.forEach((_, xhr) {
       try {
         xhr.abort();
       } catch (_) {}
     });
     activeXhrs.clear();
+    activePartNumbers.clear();
+    partBytesInFlight.clear();
+    notifyProgress();
 
-    debugPrint('''
-========== MULTIPART ABORT ==========
-uploadSessionId: $uploadSessionId
-reason: User requested abort
-=====================================''');
+    // 2. Required diagnostic logging (Section 9)
+    debugPrint(
+        '[MultipartUpload] Cancellation Requested: taskId=$localTaskId, fileName=$fileName, completedParts=${completedETags.length}/$totalParts');
+    debugPrint('[MultipartUpload] Upload Session ID: ${uploadSessionId ?? 'none'}');
+    debugPrint('[MultipartUpload] Active Parts Stopped: $stoppedPartsCount');
 
-    if (uploadSessionId != null) {
-      try {
-        final apiHelper = ApiHelper();
-        final url = ApiConstant.multipartAbort(uploadSessionId);
-        final authHdrs = await AuthService.authHeaders();
-        final redactedHdrs = _formatHeadersWithAuthRedacted(authHdrs);
-
-        debugPrint('''
-========== MULTIPART ABORT REQUEST ==========
-URL: $url
-METHOD: DELETE
-HEADERS: $redactedHdrs
-BODY: None
-===============================================''');
-
-        final response = await apiHelper.deleteApi(url);
-
-        debugPrint('''
-========== MULTIPART ABORT RESPONSE ==========
-STATUS: ${response.statusCode}
-BODY: ${response.body}
-=============================================== ''');
-      } catch (e) {
-        debugPrint('[Direct S3 Upload] ❌ Error sending abort API request: $e');
-      }
+    // If no backend session was initiated, simply clean up local state
+    if (uploadSessionId == null) {
+      debugPrint(
+          '[MultipartUpload] No active backend uploadSessionId; cancelling local state only.');
+      state = MultipartUploadState.aborted;
+      _uploadedBytesConfirmed = 0;
+      completedETags.clear();
+      MultipartUploadPersistence.removeSession(localTaskId);
+      _isAborting = false;
+      notifyProgress();
+      return true;
     }
 
-    state = MultipartUploadState.aborted;
-    MultipartUploadPersistence.removeSession(localTaskId);
+    // 3. Determine which Abort API to use (Section 4)
+    // Use POST /api/video/multipart/abort when S3 uploadId and key are present for full cleanup
+    // Use DELETE /api/video/multipart/{uploadSessionId} when identifying from session ID alone
+    final bool useBodyApi = !preferSessionIdAbort &&
+        uploadId.isNotEmpty &&
+        key.isNotEmpty;
+
+    final String selectedApi;
+    final String endpoint;
+    final String method;
+    Map<String, dynamic>? requestBody;
+
+    if (useBodyApi) {
+      endpoint = ApiConstant.multipartAbortWithBody;
+      method = 'POST';
+      requestBody = {
+        'uploadId': uploadId,
+        'key': key,
+        'uploadSessionId': uploadSessionId,
+      };
+      selectedApi = 'POST $endpoint (Body with uploadId, key, uploadSessionId)';
+    } else {
+      endpoint = ApiConstant.multipartAbort(uploadSessionId);
+      method = 'DELETE';
+      selectedApi = 'DELETE $endpoint (Session ID alone)';
+    }
+
+    debugPrint('[MultipartUpload] Abort API Selected: $selectedApi');
+
+    bool success = false;
+    String? failureReason;
+
+    try {
+      final apiHelper = ApiHelper();
+      final authHdrs = await AuthService.authHeaders();
+      final redactedHdrs = _formatHeadersWithAuthRedacted(authHdrs);
+
+      final abortStopwatch = Stopwatch()..start();
+      final abortStartTime = DateTime.now().toIso8601String();
+
+      debugPrint('''
+[MultipartUpload] Abort Request
+endpoint: $endpoint
+method: $method
+startTime: $abortStartTime
+uploadSessionId: $uploadSessionId
+uploadId: $uploadId
+s3Key: $key
+payload: ${requestBody != null ? jsonEncode(requestBody) : 'none'}
+headers: $redactedHdrs''');
+
+      dynamic response;
+      if (method == 'POST') {
+        response = await apiHelper.postApiWithBody(endpoint, requestBody!);
+      } else {
+        response = await apiHelper.deleteApi(endpoint);
+      }
+      abortStopwatch.stop();
+
+      final statusCode = response.statusCode as int? ?? 0;
+      final responseBody = response.body?.toString() ?? '';
+
+      debugPrint('''
+[MultipartUpload] Abort Response
+endpoint: $endpoint
+method: $method
+statusCode: $statusCode
+durationMs: ${abortStopwatch.elapsedMilliseconds}ms
+body: $responseBody''');
+
+      // 4. Handle response status codes (Section 8)
+      if (statusCode >= 200 && statusCode < 300) {
+        success = true;
+      } else if (statusCode == 404) {
+        // Session not found - handled gracefully as already cleaned up or expired
+        debugPrint(
+            '[MultipartUpload] Session $uploadSessionId not found on server; treated as successfully cleaned up.');
+        success = true;
+      } else if (statusCode == 400 || statusCode == 409 || statusCode == 410) {
+        final lowerBody = responseBody.toLowerCase();
+        if (lowerBody.contains('already aborted') ||
+            lowerBody.contains('not found') ||
+            lowerBody.contains('expired') ||
+            lowerBody.contains('already cancelled') ||
+            lowerBody.contains('invalid session')) {
+          debugPrint(
+              '[MultipartUpload] Session $uploadSessionId already aborted/expired on server; treated as successfully cleaned up.');
+          success = true;
+        } else {
+          failureReason = 'Server rejected abort request: $responseBody';
+          debugPrint('[MultipartUpload] ⚠️ Abort failed: $failureReason');
+        }
+      } else if (statusCode == 401 || statusCode == 403) {
+        failureReason = 'Authentication failed while cancelling upload.';
+        debugPrint('[MultipartUpload] ⚠️ Abort unauthorized: HTTP $statusCode');
+      } else {
+        failureReason =
+            'Backend returned HTTP $statusCode while cancelling upload.';
+        debugPrint('[MultipartUpload] ⚠️ Abort server error: HTTP $statusCode');
+      }
+    } catch (e) {
+      failureReason =
+          'Network or connection error while cancelling upload: $e';
+      debugPrint('[MultipartUpload] ❌ Exception during abort request: $e');
+    }
+
+    if (success) {
+      // 5. Clear local upload state only after abort has been handled (Section 3 & 7)
+      state = MultipartUploadState.aborted;
+      errorMessage = null;
+      _uploadedBytesConfirmed = 0;
+      completedETags.clear();
+      MultipartUploadPersistence.removeSession(localTaskId);
+    } else {
+      // Retain session information to allow retry cleanup or recover safely (Section 7)
+      state = MultipartUploadState.failed;
+      errorMessage =
+          failureReason ?? 'Unable to cancel the upload. Please try again.';
+      _saveCurrentSessionRecord();
+    }
+
+    _isAborting = false;
     notifyProgress();
+    return success;
   }
 
   void _saveCurrentSessionRecord() {
@@ -1054,6 +1366,8 @@ BODY: ${response.body}
   void _setError(String msg) {
     errorMessage = msg;
     state = MultipartUploadState.failed;
+    partBytesInFlight.clear();
+    activePartNumbers.clear();
     _saveCurrentSessionRecord();
     notifyProgress();
   }

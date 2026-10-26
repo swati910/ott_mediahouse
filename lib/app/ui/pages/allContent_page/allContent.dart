@@ -12,6 +12,10 @@ import 'package:provider/provider.dart';
 import '../../../../domain/entities/content.dart';
 import '../../../core/utils/sharepreferences.dart';
 import '../../../core/content/content_type.dart';
+import '../../../core/draft/movie_draft.dart';
+import '../../../core/draft/movie_draft_service.dart';
+import '../uploadContent_page/upload_video.dart';
+import '../editMovie.dart';
 
 class AllContentPage extends StatefulWidget {
   const AllContentPage({super.key});
@@ -32,11 +36,13 @@ class _AllContentPageState extends State<AllContentPage> {
   DateTime? _startDate;
   DateTime? _endDate;
   static const String _miniSeriesType = "MINI_SERIES";
+  List<MovieDraft> _drafts = [];
 
   bool get _isMiniSeriesSelected => _selectedType == _miniSeriesType;
 
   static const List<Map<String, String>> _statusOptions = [
     {"label": "All Uploaded", "value": "ALL"},
+    {"label": "Drafts", "value": "DRAFT"},
     // {"label": "Pending Agreement", "value": "PENDING"},
     {"label": "Pending", "value": "PENDING"},
     {"label": "Approved", "value": "APPROVED"},
@@ -75,6 +81,23 @@ class _AllContentPageState extends State<AllContentPage> {
     }
 
     try {
+      if (_selectedStatus == "DRAFT") {
+        final localPrefs = LocalSharePreferences();
+        final mediaHouse = await localPrefs.getMediaHouse();
+        if (mediaHouse?.id == null) {
+          setState(() {
+            _errorMessage = "Production house not found. Please login again.";
+          });
+          return;
+        }
+        final drafts = await MovieDraftService.getDrafts(mediaHouse!.id!);
+        if (!mounted) return;
+        setState(() {
+          _drafts = drafts;
+        });
+        return;
+      }
+
       if (_isMiniSeriesSelected) {
         final shortProvider = context.read<ShortProvider>();
         if (_startDate != null && _endDate != null) {
@@ -123,6 +146,7 @@ class _AllContentPageState extends State<AllContentPage> {
   }
 
   void _onScroll() {
+    if (_selectedStatus == "DRAFT") return;
     final provider = context.read<VideoProvider>();
     if (_isMiniSeriesSelected) return;
     if (provider.isStatusLoadingMore || !provider.hasMoreStatusItems) return;
@@ -131,6 +155,18 @@ class _AllContentPageState extends State<AllContentPage> {
         _scrollController.position.maxScrollExtent - 120) {
       provider.fetchNextMoviesByStatusAndMediaHousePage();
     }
+  }
+
+  List<MovieDraft> _applyDraftSearch(List<MovieDraft> items) {
+    if (_searchQuery.isEmpty) return items;
+    return items.where((draft) {
+      final title = draft.title.toLowerCase();
+      final type = draft.contentType.toLowerCase();
+      final genre = draft.genre.toLowerCase();
+      return title.contains(_searchQuery) ||
+          type.contains(_searchQuery) ||
+          genre.contains(_searchQuery);
+    }).toList();
   }
 
   List<Content> _applyLocalSearch(List<Content> items) {
@@ -209,15 +245,20 @@ class _AllContentPageState extends State<AllContentPage> {
       body: SafeArea(
         child: Consumer2<VideoProvider, ShortProvider>(
           builder: (context, provider, shortProvider, _) {
+            final isDrafts = _selectedStatus == "DRAFT";
+            final filteredDrafts = _applyDraftSearch(_drafts);
             final filtered = _applyLocalSearch(provider.filteredContentList);
             final miniSeries = _applyMiniSeriesFilters(shortProvider.shorts);
-            final visibleCount =
-                _isMiniSeriesSelected ? miniSeries.length : filtered.length;
+            final visibleCount = isDrafts
+                ? filteredDrafts.length
+                : (_isMiniSeriesSelected ? miniSeries.length : filtered.length);
             final isLoading = _isInitialLoading ||
-                (_isMiniSeriesSelected && shortProvider.isLoading);
-            final errorMessage = _isMiniSeriesSelected
-                ? shortProvider.shortsError
-                : _errorMessage;
+                (!isDrafts && _isMiniSeriesSelected && shortProvider.isLoading);
+            final errorMessage = isDrafts
+                ? _errorMessage
+                : (_isMiniSeriesSelected
+                    ? shortProvider.shortsError
+                    : _errorMessage);
             return Column(
               children: [
                 _buildHeader(theme, visibleCount, isMobile),
@@ -234,16 +275,21 @@ class _AllContentPageState extends State<AllContentPage> {
                               : RefreshIndicator(
                                   onRefresh: () =>
                                       _fetchContent(showLoader: false),
-                                  child: _isMiniSeriesSelected
-                                      ? _buildMiniSeriesGrid(
+                                  child: isDrafts
+                                      ? _buildDraftsGrid(
                                           theme: theme,
-                                          items: miniSeries,
+                                          drafts: filteredDrafts,
                                         )
-                                      : _buildContentGrid(
-                                          theme: theme,
-                                          items: filtered,
-                                          provider: provider,
-                                        ),
+                                      : _isMiniSeriesSelected
+                                          ? _buildMiniSeriesGrid(
+                                              theme: theme,
+                                              items: miniSeries,
+                                            )
+                                          : _buildContentGrid(
+                                              theme: theme,
+                                              items: filtered,
+                                              provider: provider,
+                                            ),
                                 ),
                 ),
               ],
@@ -467,6 +513,363 @@ class _AllContentPageState extends State<AllContentPage> {
     final month = date.month.toString().padLeft(2, '0');
     final year = (date.year % 100).toString().padLeft(2, '0');
     return "$day/$month/$year";
+  }
+
+  UploadContentType _resolveUploadType(String type) {
+    final upper = type.toUpperCase().replaceAll(' ', '_');
+    if (upper.contains('SHORT')) return UploadContentType.shortFilm;
+    if (upper.contains('SERIES')) return UploadContentType.series;
+    return UploadContentType.movie;
+  }
+
+  Future<void> _openDraftUploadDialog(
+    BuildContext context,
+    MovieDraft draft,
+    ThemeData theme,
+  ) async {
+    if (draft.formType == 'editMovie' &&
+        draft.contentId != null &&
+        draft.contentId! > 0) {
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => Dialog(
+          backgroundColor: theme.cardColor,
+          child: SizedBox(
+            width: ResponsiveWidget.isMobile(dialogContext)
+                ? MediaQuery.sizeOf(dialogContext).width * 0.95
+                : MediaQuery.sizeOf(dialogContext).width * 0.6,
+            child: EditVideoMovie(
+              movie: Content(
+                id: draft.contentId,
+                title: draft.title,
+                type: draft.contentType,
+              ),
+            ),
+          ),
+        ),
+      );
+    } else {
+      final uploadType = _resolveUploadType(draft.contentType);
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => Dialog(
+          backgroundColor: theme.cardColor,
+          child: SizedBox(
+            width: ResponsiveWidget.isMobile(dialogContext)
+                ? MediaQuery.sizeOf(dialogContext).width * 0.95
+                : MediaQuery.sizeOf(dialogContext).width * 0.6,
+            child: UploadVideoWidget(
+              uploadType: uploadType,
+              initialDraft: draft,
+            ),
+          ),
+        ),
+      );
+    }
+    if (mounted) {
+      await _fetchContent(showLoader: false);
+    }
+  }
+
+  Future<void> _confirmDeleteDraft(
+    BuildContext context,
+    MovieDraft draft,
+    ThemeData theme,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: theme.cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          "Delete Draft",
+          style: TextStyle(
+            color: theme.canvasColor,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Text(
+          "Are you sure you want to delete the draft '${draft.title.isEmpty ? "Untitled" : draft.title}'? This action cannot be undone.",
+          style: TextStyle(color: theme.canvasColor.withValues(alpha: 0.8)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text("Cancel", style: TextStyle(color: theme.canvasColor)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFED4956),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text("Delete"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await MovieDraftService.deleteDraft(draft.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Draft deleted successfully")),
+        );
+        await _fetchContent(showLoader: false);
+      }
+    }
+  }
+
+  Widget _buildDraftsGrid({
+    required ThemeData theme,
+    required List<MovieDraft> drafts,
+  }) {
+    final width = MediaQuery.of(context).size.width;
+    final crossAxisCount = width > 1500
+        ? 3
+        : width > 1280
+            ? 3
+            : width > 1000
+                ? 2
+                : width > 700
+                    ? 2
+                    : 1;
+
+    return GridView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.fromLTRB(14, 6, 14, 24),
+      itemCount: drafts.length,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+        childAspectRatio: width > 700 ? 1.55 : 1.35,
+      ),
+      itemBuilder: (context, index) {
+        return _buildDraftCard(theme, drafts[index]);
+      },
+    );
+  }
+
+  Widget _buildDraftCard(ThemeData theme, MovieDraft draft) {
+    final title =
+        draft.title.trim().isEmpty ? 'Untitled Draft' : draft.title.trim();
+    final media = draft.mainVideoMetadata;
+    final isUploadFailed = media?.uploadStatus == 'FAILED';
+    final isUploadPaused = media?.uploadStatus == 'PAUSED';
+    final isUploading = media?.uploadStatus == 'UPLOADING';
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isUploadFailed
+              ? const Color(0xFFED4956).withValues(alpha: 0.6)
+              : theme.dividerColor.withValues(alpha: 0.35),
+          width: isUploadFailed ? 1.2 : 0.8,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  color: theme.scaffoldBackgroundColor.withValues(alpha: 0.6),
+                  border: Border.all(
+                      color: theme.dividerColor.withValues(alpha: 0.3)),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: draft.posterUrl != null && draft.posterUrl!.isNotEmpty
+                    ? Image.network(
+                        draft.posterUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Icon(
+                          Icons.movie_filter_outlined,
+                          color: theme.primaryColor,
+                          size: 30,
+                        ),
+                      )
+                    : Icon(
+                        Icons.movie_filter_outlined,
+                        color: theme.primaryColor,
+                        size: 30,
+                      ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: theme.canvasColor,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        _miniBadge(
+                          label: 'DRAFT',
+                          color: const Color(0xFFF59E0B),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        if (draft.isEdit)
+                          _miniBadge(
+                            label: 'EDIT',
+                            color: const Color(0xFF6366F1),
+                          ),
+                        _miniBadge(
+                          label: draft.contentType.toUpperCase(),
+                          color: theme.primaryColor,
+                        ),
+                        if (draft.genre.isNotEmpty)
+                          _miniBadge(
+                            label: draft.genre,
+                            color: Colors.blueGrey,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Step ${draft.currentStep + 1} of 3 • Saved ${_formatShortDate(draft.lastModified)}',
+                      style: TextStyle(
+                        color: theme.canvasColor.withValues(alpha: 0.6),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: isUploadFailed
+                  ? const Color(0xFFED4956).withValues(alpha: 0.08)
+                  : theme.scaffoldBackgroundColor.withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  media == null
+                      ? Icons.videocam_outlined
+                      : isUploadFailed
+                          ? Icons.error_outline_rounded
+                          : isUploadPaused
+                              ? Icons.pause_circle_outline_rounded
+                              : isUploading
+                                  ? Icons.upload_file_rounded
+                                  : Icons.check_circle_outline_rounded,
+                  size: 15,
+                  color: isUploadFailed
+                      ? const Color(0xFFED4956)
+                      : isUploadPaused
+                          ? const Color(0xFFF59E0B)
+                          : isUploading
+                              ? theme.primaryColor
+                              : Colors.green,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    media == null
+                        ? 'No video file selected yet'
+                        : '${media.fileName} (${(media.fileSize / (1024 * 1024)).toStringAsFixed(1)} MB) • ${media.uploadStatus}'
+                            '${media.completedParts.isNotEmpty ? " • ${media.completedParts.length} parts" : ""}'
+                            '${media.failureReason != null && media.failureReason!.isNotEmpty ? ": ${media.failureReason}" : ""}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isUploadFailed
+                          ? const Color(0xFFED4956)
+                          : theme.canvasColor.withValues(alpha: 0.8),
+                      fontWeight:
+                          isUploadFailed ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Spacer(),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              IconButton(
+                tooltip: 'Delete Draft',
+                icon: const Icon(Icons.delete_outline_rounded,
+                    color: Color(0xFFED4956), size: 20),
+                onPressed: () => _confirmDeleteDraft(context, draft, theme),
+              ),
+              const SizedBox(width: 4),
+              if (isUploadFailed || isUploadPaused) ...[
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.refresh_rounded, size: 14),
+                  label: Text(
+                    isUploadPaused ? 'Resume Upload' : 'Retry Upload',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: isUploadFailed
+                        ? const Color(0xFFED4956)
+                        : const Color(0xFFF59E0B),
+                    side: BorderSide(
+                      color: isUploadFailed
+                          ? const Color(0xFFED4956)
+                          : const Color(0xFFF59E0B),
+                    ),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  ),
+                  onPressed: () => _openDraftUploadDialog(context, draft, theme),
+                ),
+                const SizedBox(width: 6),
+              ],
+              ElevatedButton.icon(
+                icon: const Icon(Icons.edit_note_rounded, size: 16),
+                label: const Text('Continue Editing',
+                    style: TextStyle(fontSize: 12)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: theme.primaryColor,
+                  foregroundColor: Colors.white,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                ),
+                onPressed: () => _openDraftUploadDialog(context, draft, theme),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildContentGrid({

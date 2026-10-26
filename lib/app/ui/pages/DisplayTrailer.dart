@@ -41,36 +41,36 @@ class _TrailerPageState extends State<TrailerPage> with WidgetsBindingObserver {
       return;
     }
 
-    _player = Player(
-      configuration: const PlayerConfiguration(
-        title: 'OTT Production House Player',
-        bufferSize: 64 * 1024 * 1024,
-      ),
-    );
-    _videoController = VideoController(
-      _player,
-      configuration: const VideoControllerConfiguration(
-        enableHardwareAcceleration: true,
-      ),
-    );
-    _hasPlayer = true;
-
-    _subscriptions.add(
-      _player.stream.error.listen((error) {
-        if (!mounted) return;
-        setState(() {
-          _errorMessage = error;
-        });
-      }),
-    );
-
-    _subscriptions.add(
-      _player.stream.playing.listen((playing) {
-        if (mounted) setState(() {});
-      }),
-    );
-
     try {
+      _player = Player(
+        configuration: const PlayerConfiguration(
+          title: 'OTT Production House Player',
+          bufferSize: 64 * 1024 * 1024,
+        ),
+      );
+      _videoController = VideoController(
+        _player,
+        configuration: const VideoControllerConfiguration(
+          enableHardwareAcceleration: true,
+        ),
+      );
+      _hasPlayer = true;
+
+      _subscriptions.add(
+        _player.stream.error.listen((error) {
+          if (!mounted) return;
+          setState(() {
+            _errorMessage = error;
+          });
+        }),
+      );
+
+      _subscriptions.add(
+        _player.stream.playing.listen((playing) {
+          if (mounted) setState(() {});
+        }),
+      );
+
       // media_kit keeps compatibility with MP4, HLS (.m3u8), DASH, audio-only
       // URLs, embedded subtitle tracks, and remote HTTP/HTTPS media.
       await _player.open(Media(url), play: false);

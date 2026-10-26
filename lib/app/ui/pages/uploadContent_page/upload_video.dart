@@ -21,6 +21,9 @@ import '../../../core/upload/s3_multipart_upload_service.dart';
 import '../../widget/multipart_upload_progress_widget.dart';
 import '../../../../domain/entities/content.dart';
 import '../../../core/content/content_type.dart';
+import '../../dialog/discard_changes_dialog.dart';
+import '../../../core/draft/movie_draft.dart';
+import '../../../core/draft/movie_draft_service.dart';
 
 enum UploadContentType { movie, shortFilm, series }
 
@@ -42,10 +45,12 @@ extension UploadContentTypeContract on UploadContentType {
 
 class UploadVideoWidget extends StatefulWidget {
   final UploadContentType uploadType;
+  final MovieDraft? initialDraft;
 
   const UploadVideoWidget({
     super.key,
     this.uploadType = UploadContentType.movie,
+    this.initialDraft,
   });
 
   @override
@@ -61,6 +66,8 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
   int _currentPage = 0;
   bool _isDownloadingAgreement = false;
   bool _isSubmitting = false;
+  MovieDraft? _availableDraft;
+  bool _showDraftBanner = false;
 
   bool get _isMovieLike => widget.uploadType.isMovieLike;
   bool get _requiresCensorCertificate =>
@@ -84,15 +91,110 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
   void initState() {
     super.initState();
     _initRazorpay();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (widget.initialDraft != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        final provider = context.read<VideoProvider>();
+        await provider.loadFromDraft(widget.initialDraft!, context);
+        provider.fetchActiveRegistrationFeeRule(
+          contentType: _registrationFeeContentType,
+        );
+        provider.fetchGroupedLanguages();
+        if (widget.initialDraft!.currentStep > 0 &&
+            widget.initialDraft!.currentStep < _totalSteps) {
+          setState(() => _currentPage = widget.initialDraft!.currentStep);
+          _pageController.jumpToPage(widget.initialDraft!.currentStep);
+        }
+      });
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        final provider = context.read<VideoProvider>();
+        provider.prepareUploadForm(_uploadContentType);
+        provider.fetchActiveRegistrationFeeRule(
+          contentType: _registrationFeeContentType,
+        );
+        provider.fetchGroupedLanguages();
+
+        // Check if an existing local draft exists for this form type
+        try {
+          final existing =
+              await provider.checkExistingDraftForForm(_uploadContentType);
+          if (mounted && existing != null) {
+            setState(() {
+              _availableDraft = existing;
+              _showDraftBanner = true;
+            });
+          }
+        } catch (_) {}
+      });
+    }
+  }
+
+  Future<void> _resumeAvailableDraft(VideoProvider provider) async {
+    final draft = _availableDraft;
+    if (draft == null) return;
+    await provider.loadFromDraft(draft, context);
+    provider.fetchActiveRegistrationFeeRule(
+      contentType: _registrationFeeContentType,
+    );
+    provider.fetchGroupedLanguages();
+    if (draft.currentStep > 0 && draft.currentStep < _totalSteps) {
+      setState(() => _currentPage = draft.currentStep);
+      _pageController.jumpToPage(draft.currentStep);
+    }
+    setState(() => _showDraftBanner = false);
+    if (mounted) {
+      CustomToast.show(context, "Draft restored successfully.", isSuccess: true);
+    }
+  }
+
+  Future<void> _handleCloseAttempt(VideoProvider provider) async {
+    if (_isSubmitting) return;
+
+    if (!provider.hasUnsavedChanges &&
+        !provider.hasActiveOrIncompleteUploads &&
+        widget.initialDraft == null) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    final action = await DiscardChangesDialog.show(context);
+    if (action == null || action == DiscardDialogAction.keepEditing) {
+      return;
+    }
+
+    if (action == DiscardDialogAction.discard) {
+      if (provider.activeDraftId != null) {
+        await MovieDraftService.deleteDraft(provider.activeDraftId!);
+      }
+      await provider.abortAllActiveMultipartUploads();
+      provider.disposeData();
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+      return;
+    }
+
+    if (action == DiscardDialogAction.saveDraft) {
+      final savedDraft =
+          await provider.saveAsDraft(currentStep: _currentPage, formType: _uploadContentType);
       if (!mounted) return;
-      final provider = context.read<VideoProvider>();
-      provider.prepareUploadForm(_uploadContentType);
-      provider.fetchActiveRegistrationFeeRule(
-        contentType: _registrationFeeContentType,
-      );
-      provider.fetchGroupedLanguages();
-    });
+      if (savedDraft != null) {
+        CustomToast.show(
+          context,
+          "Draft saved locally.",
+          isSuccess: true,
+        );
+        Navigator.of(context).pop();
+      } else {
+        CustomToast.show(
+          context,
+          "Failed to save draft. Please try again.",
+          isSuccess: false,
+        );
+      }
+    }
   }
 
   @override
@@ -361,9 +463,14 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
   Widget build(BuildContext context) {
     final selectedThemeData =
         Provider.of<ThemeProvider>(context, listen: false).getTheme;
+    final provider = context.watch<VideoProvider>();
 
-    return WillPopScope(
-      onWillPop: () async => !_isSubmitting,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        _handleCloseAttempt(provider);
+      },
       child: Scaffold(
         backgroundColor: Colors.transparent,
         body: Center(
@@ -390,8 +497,10 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
               builder: (context, provider, child) {
                 return Column(
                   children: [
-                    _buildHeader(selectedThemeData),
+                    _buildHeader(selectedThemeData, provider),
                     _buildProgressIndicator(selectedThemeData),
+                    if (_showDraftBanner && _availableDraft != null)
+                      _buildDraftBanner(selectedThemeData, provider),
                     Expanded(
                       child: PageView(
                         controller: _pageController,
@@ -408,6 +517,72 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildDraftBanner(ThemeData theme, VideoProvider provider) {
+    if (_availableDraft == null) return const SizedBox.shrink();
+    final isDark = theme.brightness == Brightness.dark;
+    final bannerBg =
+        isDark ? const Color(0xFF1F2937) : const Color(0xFFEFF6FF);
+    final borderColor =
+        isDark ? const Color(0xFF374151) : const Color(0xFFBFDBFE);
+    final textColor = isDark ? Colors.white : const Color(0xFF1E3A8A);
+
+    final savedTime = _availableDraft!.lastModified;
+    final timeStr =
+        "${savedTime.day.toString().padLeft(2, '0')}/${savedTime.month.toString().padLeft(2, '0')}/${savedTime.year} ${savedTime.hour.toString().padLeft(2, '0')}:${savedTime.minute.toString().padLeft(2, '0')}";
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: bannerBg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor, width: 1),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.history_toggle_off_rounded,
+              color: theme.primaryColor, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              "Saved local draft available from $timeStr (${_availableDraft!.title.isNotEmpty ? _availableDraft!.title : 'Untitled'}).",
+              style: TextStyle(
+                color: textColor,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 10),
+          ElevatedButton(
+            onPressed: () => _resumeAvailableDraft(provider),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: theme.primaryColor,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle:
+                  const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6)),
+            ),
+            child: const Text("Resume"),
+          ),
+          const SizedBox(width: 6),
+          IconButton(
+            icon: Icon(Icons.close, size: 16, color: textColor.withOpacity(0.6)),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            onPressed: () => setState(() => _showDraftBanner = false),
+            tooltip: "Dismiss",
+          ),
+        ],
       ),
     );
   }
@@ -874,15 +1049,37 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
                               ),
                               if (uploaded) ...[
                                 const SizedBox(width: 8),
-                                if (imageUrl.isNotEmpty) ...[
+                                if (imageUrl.isNotEmpty || (isVideo && UploadMediaHelpers.getVideoUrl(label, provider) != null)) ...[
                                   InkWell(
-                                    onTap: () =>
+                                    onTap: () {
+                                      if (isVideo) {
+                                        final rawCandidate = imageUrl.isNotEmpty
+                                            ? imageUrl
+                                            : (UploadMediaHelpers.getVideoUrl(label, provider) ?? '');
+                                        final videoUrl = UploadMediaHelpers.formatPlayableVideoUrl(rawCandidate);
+                                        if (videoUrl.isNotEmpty) {
+                                          UploadMediaHelpers.showVideoPreview(
+                                            context,
+                                            videoUrl,
+                                            label,
+                                            theme,
+                                          );
+                                        } else {
+                                          CustomToast.show(
+                                            context,
+                                            "No video available to preview",
+                                            isSuccess: false,
+                                          );
+                                        }
+                                      } else {
                                         UploadMediaHelpers.showImagePreview(
-                                      context,
-                                      imageUrl,
-                                      label,
-                                      theme,
-                                    ),
+                                          context,
+                                          imageUrl,
+                                          label,
+                                          theme,
+                                        );
+                                      }
+                                    },
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 8, vertical: 5),
@@ -928,7 +1125,20 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
                                 ),
                                 const SizedBox(width: 6),
                                 InkWell(
-                                  onTap: () => controller.clear(),
+                                  onTap: () async {
+                                    final confirmed = await UploadMediaHelpers.confirmDeleteMedia(context, label);
+                                    if (!confirmed || !mounted) return;
+                                    if (isVideo) {
+                                      await UploadMediaHelpers.deleteMediaByLabel(label, provider, context: context);
+                                      if (!mounted) return;
+                                      provider.clearMovieVariant(language, field);
+                                    } else {
+                                      provider.clearMovieVariant(language, field);
+                                      if (mounted) {
+                                        CustomToast.show(context, "$label removed", isSuccess: true);
+                                      }
+                                    }
+                                  },
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 8, vertical: 5),
@@ -962,7 +1172,7 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
             onPause: () => provider.pauseTeaserMultipartUpload(),
             onResume: () => provider.resumeTeaserMultipartUpload(),
             onRetry: () => provider.retryTeaserMultipartUpload(),
-            onAbort: () => provider.abortTeaserMultipartUpload(),
+            onAbort: () => provider.abortTeaserMultipartUpload(context: context),
           ),
         ],
         if (field == 'trailer' && provider.activeTrailerProgressInfo != null &&
@@ -973,7 +1183,7 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
             onPause: () => provider.pauseTrailerMultipartUpload(),
             onResume: () => provider.resumeTrailerMultipartUpload(),
             onRetry: () => provider.retryTrailerMultipartUpload(),
-            onAbort: () => provider.abortTrailerMultipartUpload(),
+            onAbort: () => provider.abortTrailerMultipartUpload(context: context),
           ),
         ],
         if ((field == 'movie' || field == 'video') && provider.activePrimaryProgressInfo != null &&
@@ -984,7 +1194,7 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
             onPause: () => provider.pausePrimaryMultipartUpload(),
             onResume: () => provider.resumePrimaryMultipartUpload(),
             onRetry: () => provider.retryPrimaryMultipartUpload(),
-            onAbort: () => provider.abortPrimaryMultipartUpload(),
+            onAbort: () => provider.abortPrimaryMultipartUpload(context: context),
           ),
         ],
       ],
@@ -1733,7 +1943,7 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
     );
   }
 
-  Widget _buildHeader(ThemeData themeData) {
+  Widget _buildHeader(ThemeData themeData, VideoProvider provider) {
     final List<String> stepTitles = _isMovieLike
         ? const [
             "Language, Details & Cast",
@@ -1804,7 +2014,8 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
           top: 5,
           left: 5,
           child: IconButton(
-            onPressed: _isSubmitting ? null : () => Navigator.pop(context),
+            onPressed:
+                _isSubmitting ? null : () => _handleCloseAttempt(provider),
             style: IconButton.styleFrom(
               backgroundColor:
                   themeData.scaffoldBackgroundColor.withValues(alpha: 0.35),
@@ -1874,7 +2085,31 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
                 child: const Text("Previous"),
               ),
             ),
-          if (_currentPage > 0) const SizedBox(width: 16),
+          if (_currentPage > 0) const SizedBox(width: 12),
+          TextButton.icon(
+            onPressed: _isSubmitting
+                ? null
+                : () async {
+                    final saved = await provider.saveAsDraft(
+                      currentStep: _currentPage,
+                      formType: _uploadContentType,
+                    );
+                    if (!mounted) return;
+                    if (saved != null) {
+                      CustomToast.show(
+                        context,
+                        "Draft saved locally.",
+                        isSuccess: true,
+                      );
+                    }
+                  },
+            icon: const Icon(Icons.bookmark_outline, size: 18),
+            label: const Text("Save Draft"),
+            style: TextButton.styleFrom(
+              foregroundColor: themeData.canvasColor.withOpacity(0.8),
+            ),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: ElevatedButton(
               onPressed: _isSubmitting

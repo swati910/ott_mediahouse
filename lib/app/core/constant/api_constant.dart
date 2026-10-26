@@ -1,7 +1,7 @@
 class ApiConstant {
-//  static const String baseUrl = "https://filmytell.com/ott/";
-  static const String baseUrl =
-      "http://ec2-13-201-27-141.ap-south-1.compute.amazonaws.com:8080/ott/";
+  static const String baseUrl = "https://filmytell.com/ott/";
+  // static const String baseUrl =
+  //     "http://ec2-13-201-27-141.ap-south-1.compute.amazonaws.com:8080/ott/";
   static const String signedPlaybackUrl =
       "${baseUrl}anti-piracy/playback/signed-url";
 
@@ -70,6 +70,7 @@ class ApiConstant {
         .join('&');
     return "${baseUrl}api/v2/user/movie-transactions-by-media-house/$mediaHouseId?$query";
   }
+
   static String productionHouseNotifications({
     required int userId,
     required int mediaHouseId,
@@ -223,6 +224,7 @@ class ApiConstant {
   static String multipartComplete = "${baseUrl}api/video/multipart/complete";
   static String multipartAbort(dynamic uploadSessionId) =>
       "${baseUrl}api/video/multipart/$uploadSessionId";
+  static String multipartAbortWithBody = "${baseUrl}api/video/multipart/abort";
   static String allLanguagesWithGrouping = "${baseUrl}api/all/withGrouping";
   static String sendNotification = "${baseUrl}api/notifications/send";
   static String scheduleNotification = "${baseUrl}api/notifications/schedule";

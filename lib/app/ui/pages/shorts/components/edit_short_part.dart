@@ -236,7 +236,7 @@ class _EditShortPartDialogState extends State<EditShortPartDialog> {
               onRetry: () => provider
                   .retryPartMultipartUpload('part_${widget.part.partId}'),
               onAbort: () => provider
-                  .abortPartMultipartUpload('part_${widget.part.partId}'),
+                  .abortPartMultipartUpload('part_${widget.part.partId}', context: context),
             ),
           ],
         ],

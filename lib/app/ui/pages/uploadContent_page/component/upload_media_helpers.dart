@@ -1,9 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:universal_html/html.dart' as html;
 
+import '../../DisplayTrailer.dart';
 import '../../../../core/utils/image_validation_service.dart';
 import '../../../../provider/videoProvider.dart';
 import '../../../widget/multipart_upload_progress_widget.dart';
+import '../../../../widget/show_toast.dart';
 import '../../../../core/upload/s3_multipart_upload_service.dart';
 
 class UploadMediaHelpers {
@@ -23,8 +27,14 @@ class UploadMediaHelpers {
         final bool isUploading =
             UploadMediaHelpers.getUploadingStatus(label, provider);
 
+        final bool isVideo = UploadMediaHelpers.isVideoFile(label);
+
         final String? imageUrl =
             UploadMediaHelpers.getImageUrl(label, provider);
+
+        final String? mediaUrl = isVideo
+            ? UploadMediaHelpers.getVideoUrl(label, provider)
+            : imageUrl;
 
         Color containerColor = selectedThemeData.primaryColor.withOpacity(0.1);
         Color borderColor = selectedThemeData.primaryColor.withOpacity(0.3);
@@ -183,10 +193,17 @@ class UploadMediaHelpers {
                                   ),
                                   if (isUploaded) ...[
                                     const SizedBox(width: 8),
-                                    if (imageUrl != null && imageUrl.isNotEmpty) ...[
+                                    if (mediaUrl != null && mediaUrl.isNotEmpty) ...[
                                       InkWell(
-                                        onTap: () => UploadMediaHelpers.showImagePreview(
-                                            context, imageUrl, label, selectedThemeData),
+                                        onTap: () {
+                                          if (isVideo) {
+                                            UploadMediaHelpers.showVideoPreview(
+                                                context, mediaUrl, label, selectedThemeData);
+                                          } else {
+                                            UploadMediaHelpers.showImagePreview(
+                                                context, mediaUrl, label, selectedThemeData);
+                                          }
+                                        },
                                         child: Container(
                                           padding: const EdgeInsets.symmetric(
                                               horizontal: 8, vertical: 5),
@@ -237,7 +254,11 @@ class UploadMediaHelpers {
                                     ),
                                     const SizedBox(width: 6),
                                     InkWell(
-                                      onTap: () => UploadMediaHelpers.deleteMediaByLabel(label, provider),
+                                      onTap: () async {
+                                        final confirmed = await UploadMediaHelpers.confirmDeleteMedia(context, label);
+                                        if (!confirmed) return;
+                                        await UploadMediaHelpers.deleteMediaByLabel(label, provider, context: context);
+                                      },
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(
                                             horizontal: 8, vertical: 5),
@@ -272,7 +293,7 @@ class UploadMediaHelpers {
                 onPause: () => provider.pauseTeaserMultipartUpload(),
                 onResume: () => provider.resumeTeaserMultipartUpload(),
                 onRetry: () => provider.retryTeaserMultipartUpload(),
-                onAbort: () => provider.abortTeaserMultipartUpload(),
+                onAbort: () => provider.abortTeaserMultipartUpload(context: context),
               ),
             ],
             if (label == "Trailer File" &&
@@ -284,7 +305,7 @@ class UploadMediaHelpers {
                 onPause: () => provider.pauseTrailerMultipartUpload(),
                 onResume: () => provider.resumeTrailerMultipartUpload(),
                 onRetry: () => provider.retryTrailerMultipartUpload(),
-                onAbort: () => provider.abortTrailerMultipartUpload(),
+                onAbort: () => provider.abortTrailerMultipartUpload(context: context),
               ),
             ],
             if ((label == "Movie File" || label == "Video File") &&
@@ -296,7 +317,7 @@ class UploadMediaHelpers {
                 onPause: () => provider.pausePrimaryMultipartUpload(),
                 onResume: () => provider.resumePrimaryMultipartUpload(),
                 onRetry: () => provider.retryPrimaryMultipartUpload(),
-                onAbort: () => provider.abortPrimaryMultipartUpload(),
+                onAbort: () => provider.abortPrimaryMultipartUpload(context: context),
               ),
             ],
           ],
@@ -521,6 +542,153 @@ class UploadMediaHelpers {
     );
   }
 
+  static bool isVideoFile(String label) {
+    return label == "Movie File" ||
+        label == "Trailer File" ||
+        label == "Teaser File" ||
+        label == "Video File";
+  }
+
+  static String formatPlayableVideoUrl(String rawUrl) {
+    final trimmed = rawUrl.trim();
+    if (trimmed.isEmpty) return '';
+    if (trimmed.startsWith('http://') ||
+        trimmed.startsWith('https://') ||
+        trimmed.startsWith('blob:') ||
+        trimmed.startsWith('file:') ||
+        trimmed.startsWith('/')) {
+      return trimmed;
+    }
+    return 'https://ott-video-content.s3.ap-south-1.amazonaws.com/$trimmed';
+  }
+
+  static String? getVideoUrl(String label, VideoProvider provider) {
+    switch (label) {
+      case "Trailer File":
+        final url = provider.trailerUrlController.text.trim();
+        if (url.isNotEmpty) return formatPlayableVideoUrl(url);
+        if (kIsWeb && provider.trailerSelectedFile != null) {
+          try {
+            return html.Url.createObjectUrlFromBlob(provider.trailerSelectedFile!);
+          } catch (_) {}
+        }
+        return null;
+      case "Teaser File":
+        final url = provider.teaserUrlController.text.trim();
+        if (url.isNotEmpty) return formatPlayableVideoUrl(url);
+        if (kIsWeb && provider.teaserSelectedFile != null) {
+          try {
+            return html.Url.createObjectUrlFromBlob(provider.teaserSelectedFile!);
+          } catch (_) {}
+        }
+        return null;
+      case "Movie File":
+      case "Video File":
+        final url = provider.movieUrlController.text.trim();
+        if (url.isNotEmpty) return formatPlayableVideoUrl(url);
+        if (kIsWeb && provider.primarySelectedFile != null) {
+          try {
+            return html.Url.createObjectUrlFromBlob(provider.primarySelectedFile!);
+          } catch (_) {}
+        }
+        return null;
+      default:
+        return null;
+    }
+  }
+
+  static void showVideoPreview(
+    BuildContext context,
+    String videoUrl,
+    String label,
+    ThemeData themeData,
+  ) {
+    final formattedUrl = formatPlayableVideoUrl(videoUrl);
+    if (formattedUrl.isEmpty) {
+      CustomToast.show(context, "No video available to preview", isSuccess: false);
+      return;
+    }
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(dialogContext).size.height * 0.85,
+              maxWidth: MediaQuery.of(dialogContext).size.width * 0.85,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.black,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black54,
+                  blurRadius: 16,
+                  offset: Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.9),
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(12),
+                      topRight: Radius.circular(12),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.videocam, color: Colors.white, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          label,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        icon: const Icon(
+                          Icons.close,
+                          color: Colors.white,
+                        ),
+                        tooltip: "Close",
+                      ),
+                    ],
+                  ),
+                ),
+                Flexible(
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.only(
+                      bottomLeft: Radius.circular(12),
+                      bottomRight: Radius.circular(12),
+                    ),
+                    child: AspectRatio(
+                      aspectRatio: 16 / 9,
+                      child: TrailerPage(trailerUrl: formattedUrl),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   static bool isImageFile(String label) {
     return label == "Censor Certificate" ||
         label.startsWith("Poster") ||
@@ -559,39 +727,85 @@ class UploadMediaHelpers {
     }
   }
 
-  static void deleteMediaByLabel(String label, VideoProvider provider) {
+  static Future<bool> confirmDeleteMedia(BuildContext context, String label) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: Text('Delete $label?'),
+        content: Text('Are you sure you want to delete this $label?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  static Future<void> deleteMediaByLabel(
+    String label,
+    VideoProvider provider, {
+    BuildContext? context,
+  }) async {
     switch (label) {
       case "Trailer File":
+        if (provider.trailerUploadTask != null &&
+            provider.trailerUploadTask!.state != MultipartUploadState.completed &&
+            provider.trailerUploadTask!.state != MultipartUploadState.aborted) {
+          await provider.trailerUploadTask!.abort();
+        }
         provider.trailerUrlController.clear();
         provider.trailerFileName = null;
         provider.trailerUploadProgress = 0.0;
         provider.trailerUploadProgressInfo = null;
         provider.trailerSelectedFile = null;
         provider.trailerUploadTask = null;
+        provider.resetVideoUploadStateByLabel("Trailer File");
         for (final langMap in provider.movieVariantControllers.values) {
           langMap['trailer']?.clear();
         }
         break;
       case "Teaser File":
+        if (provider.teaserUploadTask != null &&
+            provider.teaserUploadTask!.state != MultipartUploadState.completed &&
+            provider.teaserUploadTask!.state != MultipartUploadState.aborted) {
+          await provider.teaserUploadTask!.abort();
+        }
         provider.teaserUrlController.clear();
         provider.teaserFileName = null;
         provider.teaserUploadProgress = 0.0;
         provider.teaserUploadProgressInfo = null;
         provider.teaserSelectedFile = null;
         provider.teaserUploadTask = null;
+        provider.resetVideoUploadStateByLabel("Teaser File");
         for (final langMap in provider.movieVariantControllers.values) {
           langMap['teaser']?.clear();
         }
         break;
       case "Movie File":
+      case "Video File":
+        if (provider.primaryUploadTask != null &&
+            provider.primaryUploadTask!.state != MultipartUploadState.completed &&
+            provider.primaryUploadTask!.state != MultipartUploadState.aborted) {
+          await provider.primaryUploadTask!.abort();
+        }
         provider.movieUrlController.clear();
         provider.movieFileName = null;
         provider.movieUploadProgress = 0.0;
         provider.primaryUploadProgressInfo = null;
         provider.primarySelectedFile = null;
         provider.primaryUploadTask = null;
+        provider.resetVideoUploadStateByLabel("Movie File");
         for (final langMap in provider.movieVariantControllers.values) {
           langMap['movie']?.clear();
+          langMap['video']?.clear();
         }
         break;
       case "Censor Certificate":
@@ -633,6 +847,9 @@ class UploadMediaHelpers {
         break;
     }
     provider.notifyListeners();
+    if (context != null && context.mounted) {
+      CustomToast.show(context, "$label removed", isSuccess: true);
+    }
   }
 
   static bool getUploadStatus(String label, VideoProvider provider) {
@@ -642,6 +859,7 @@ class UploadMediaHelpers {
       case "Teaser File":
         return provider.teaserUrlController.text.isNotEmpty;
       case "Movie File":
+      case "Video File":
         return provider.movieUrlController.text.isNotEmpty;
       case "Censor Certificate":
         return provider.censorCertificateController.text.isNotEmpty;
@@ -672,6 +890,7 @@ class UploadMediaHelpers {
       case "Teaser File":
         return provider.teaserUploadProgress;
       case "Movie File":
+      case "Video File":
         return provider.movieUploadProgress;
       case "Censor Certificate":
       case "Poster 1":
@@ -698,6 +917,7 @@ class UploadMediaHelpers {
       case "Teaser File":
         return provider.isTeaserUploading;
       case "Movie File":
+      case "Video File":
         return provider.isMovieUploading;
       case "Censor Certificate":
       case "Poster 1":

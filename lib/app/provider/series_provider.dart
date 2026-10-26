@@ -23,6 +23,7 @@ import '../core/network/api_helper.dart';
 import '../core/utils/sharepreferences.dart';
 import '../core/upload/multipart_upload_persistence.dart';
 import '../core/upload/s3_multipart_upload_service.dart';
+import '../widget/show_toast.dart';
 
 class SeriesProvider extends ChangeNotifier {
   List<ShortModel> shorts = [];
@@ -119,12 +120,23 @@ class SeriesProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> abortEpisodeMultipartUpload(String taskId) async {
+  Future<bool> abortEpisodeMultipartUpload(String taskId, {BuildContext? context}) async {
     final task = _episodeUploadTasks[taskId];
-    await task?.abort();
-    _episodeUploadTasks.remove(taskId);
-    _episodeUploadProgressInfo.remove(taskId);
-    notifyListeners();
+    final success = (await task?.abort()) ?? true;
+    if (success) {
+      _episodeUploadTasks.remove(taskId);
+      _episodeUploadProgressInfo.remove(taskId);
+      notifyListeners();
+      if (context != null && context.mounted) {
+        CustomToast.show(context, "Upload cancelled successfully.", isSuccess: true);
+      }
+    } else {
+      notifyListeners();
+      if (context != null && context.mounted) {
+        CustomToast.show(context, "Unable to cancel the upload. Please try again.", isSuccess: false);
+      }
+    }
+    return success;
   }
 
   SeriesDetailsResponse? _data;

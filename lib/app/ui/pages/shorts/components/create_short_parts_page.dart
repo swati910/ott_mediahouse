@@ -760,7 +760,7 @@ class _CreateShortPartsDialogState extends State<CreateShortPartsDialog> {
                   onPause: () => provider.pausePartMultipartUpload(taskId),
                   onResume: () => provider.resumePartMultipartUpload(taskId),
                   onRetry: () => provider.retryPartMultipartUpload(taskId),
-                  onAbort: () => provider.abortPartMultipartUpload(taskId),
+                  onAbort: () => provider.abortPartMultipartUpload(taskId, context: context),
                 ),
               );
             },
