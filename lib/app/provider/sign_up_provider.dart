@@ -16,6 +16,7 @@ class SignUpProvider extends ChangeNotifier {
     'postCount',
     'totalViews',
     'totalReveneu',
+    'confirmPassword',
   };
 
   final Map<String, TextEditingController> _controllers = {
@@ -51,6 +52,8 @@ class SignUpProvider extends ChangeNotifier {
     'mobileNumber': TextEditingController(),
     'officeBuilding': TextEditingController(),
     'panCard': TextEditingController(),
+    'password': TextEditingController(),
+    'confirmPassword': TextEditingController(),
     'pincode': TextEditingController(),
     'postCount': TextEditingController(),
     'profileImage': TextEditingController(),
@@ -196,7 +199,7 @@ class SignUpProvider extends ChangeNotifier {
     } catch (error) {
       return {
         'success': false,
-        'message': 'An error occurred while signup: $error',
+        'message': 'Unable to sign up. Please try again.',
       };
     } finally {
       _isSubmitting = false;

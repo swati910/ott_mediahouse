@@ -3,10 +3,13 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:media_house/app/ui/pages/DisplayTrailer.dart';
+import 'package:media_house/app/ui/pages/secure_content_page.dart';
 import 'package:media_house/app/ui/pages/sereis/components/season_details.dart';
 import 'package:media_house/data/models/response/series_detail_response.dart';
+import 'package:media_house/data/models/response/signed_playback.dart';
 import 'package:media_house/domain/entities/content.dart';
 import 'package:provider/provider.dart';
+import '../../../../core/utils/currency_formatter.dart';
 
 import '../../../../../device/utils/ResponsiveWidget.dart';
 import '../../../../provider/series_provider.dart';
@@ -305,33 +308,55 @@ class _SeriesDetailsPageState extends State<SeriesDetailsPage> {
           },
         ),
         const SizedBox(height: 10),
-        _dashboardButton(
-          theme,
-          label: "Watch Trailer",
-          icon: Icons.play_circle_fill,
-          backgroundColor: const Color(0xFF0F4C81),
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => TrailerPage(trailerUrl: series.trailerURL),
-              ),
-            );
-          },
-        ),
+        if (series.trailerURL.trim().isNotEmpty)
+          _dashboardButton(
+            theme,
+            label: "Watch Trailer",
+            icon: Icons.play_circle_fill,
+            backgroundColor: const Color(0xFF0F4C81),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => TrailerPage(trailerUrl: series.trailerURL),
+                ),
+              );
+            },
+          ),
+        if (series.teaserURL.trim().isNotEmpty) ...[
+          const SizedBox(height: 10),
+          _dashboardButton(
+            theme,
+            label: "Watch Teaser",
+            icon: Icons.play_circle_outline,
+            backgroundColor: const Color(0xFFE65100),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => TrailerPage(trailerUrl: series.teaserURL),
+                ),
+              );
+            },
+          ),
+        ],
         const SizedBox(height: 10),
         _dashboardButton(
           theme,
           label: "Edit Series",
           icon: Icons.edit,
           backgroundColor: const Color(0xFF155EEF),
-          onTap: () {
-            Navigator.push(
+          onTap: () async {
+            final updated = await Navigator.push<bool>(
               context,
               MaterialPageRoute(
                 builder: (context) => EditVideoMovie(movie: widget.content),
               ),
             );
+            if (updated == true && mounted) {
+              Provider.of<SeriesProvider>(context, listen: false)
+                  .loadSeries(widget.seriesId);
+            }
           },
         ),
         const SizedBox(height: 10),
@@ -453,7 +478,8 @@ class _SeriesDetailsPageState extends State<SeriesDetailsPage> {
       (sum, e) => sum + (e.viewCount ?? 0),
     );
     final totalLikes = widget.content.ratingCount ?? 0;
-    final totalRevenue = widget.content.totalRevenue ?? 0;
+    final grossRevenue = widget.content.effectiveMediaHouseGrossRevenue;
+    final totalRevenue = widget.content.effectiveMediaHouseNetRevenue;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -464,8 +490,10 @@ class _SeriesDetailsPageState extends State<SeriesDetailsPage> {
                 : 2;
 
         final cards = [
+          _analyticsCard(theme, Icons.account_balance_wallet_outlined,
+              "Gross Revenue", "$grossRevenue"),
           _analyticsCard(
-              theme, Icons.currency_rupee, "Total Revenue", "$totalRevenue"),
+              theme, Icons.currency_rupee, "Net Revenue", "$totalRevenue"),
           _analyticsCard(theme, Icons.remove_red_eye_outlined, "Total Views",
               "$totalViews"),
           _analyticsCard(
@@ -1062,7 +1090,11 @@ class _SeriesDetailsPageState extends State<SeriesDetailsPage> {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => TrailerPage(trailerUrl: ep.videoUrl ?? ''),
+                builder: (_) => SecureContentPage(
+                  contentId: ep.id?.toString() ?? '',
+                  contentUrl: ep.videoUrl ?? '',
+                  contentType: secureContentType(null, episode: true),
+                ),
               ),
             );
           },
@@ -1200,7 +1232,7 @@ class _SeriesDetailsPageState extends State<SeriesDetailsPage> {
     return null;
   }
 
-  int _resolveSeasonAmount(Episode ep) {
+  num _resolveSeasonAmount(Episode ep) {
     final data = Provider.of<SeriesProvider>(context, listen: false).data;
     if (data == null || ep.id == null) return ep.amount ?? 0;
     for (final bundle in data.seasons) {
@@ -1558,10 +1590,9 @@ class _SeriesDetailsPageState extends State<SeriesDetailsPage> {
     );
   }
 
-  String _formatPrice(num? price) {
+  String _formatPrice(dynamic price) {
     if (price == null) return 'N/A';
-    final value = price % 1 == 0 ? price.toInt().toString() : price.toString();
-    return 'Rs $value';
+    return formatCurrency(price, symbol: 'Rs ');
   }
 }
 

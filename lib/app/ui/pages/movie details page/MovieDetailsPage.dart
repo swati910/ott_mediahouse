@@ -2,18 +2,26 @@ import 'dart:math' as math;
 
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../../../core/content/content_type.dart';
+import '../../../widget/show_toast.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import '../../../core/utils/currency_formatter.dart';
 
 import '../../../../domain/entities/content.dart';
 import '../../../provider/themeProvider.dart';
 import '../../../provider/videoProvider.dart';
 import '../DisplayTrailer.dart';
 import '../editMovie.dart';
+import '../secure_content_page.dart';
+import '../../../../data/models/response/signed_playback.dart';
 import 'component/movieRevenueGraph.dart';
 import 'component/pending_agreement_tab.dart';
+import 'component/content_revenue_breakdown_tab.dart';
+import 'component/purchased_users_tab.dart';
+import 'component/audience_analytics_tab.dart';
 
 class MovieDetailsPage extends StatefulWidget {
   final int movieId;
@@ -35,6 +43,9 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
   static const int _trailersTab = 1;
   static const int _reviewsTab = 2;
   static const int _agreementTab = 3;
+  static const int _revenueTab = 4;
+  static const int _purchasedUsersTab = 5;
+  static const int _analyticsTab = 6;
 
   bool isLoading = true;
   int _selectedTab = _overviewTab;
@@ -318,6 +329,8 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
                   ContentTypeValue.displayLabel(movie.type)),
               _metaPill(Icons.schedule, _displayValue(movie.runtime)),
               _metaPill(Icons.currency_rupee, _formatPrice(movie.price)),
+              _metaPill(Icons.shopping_cart_outlined,
+                  '${_compactNum(movie.totalPurchase ?? 0)} Purchases'),
               _metaPill(Icons.workspace_premium_outlined,
                   _displayValue(movie.ageRating)),
             ],
@@ -460,6 +473,9 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
         normalizedStatus == 'pending';
     final tabs = [
       ('Overview', _overviewTab),
+      ('Revenue Breakdown', _revenueTab),
+      ('Purchased Users', _purchasedUsersTab),
+      ('Audience Analytics', _analyticsTab),
       ('Trailers & More', _trailersTab),
       ('User Reviews', _reviewsTab),
       if (showAgreementTab)
@@ -513,6 +529,36 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
     required ThemeData selectedThemeData,
     required bool isDesktop,
   }) {
+    if (_selectedTab == _revenueTab) {
+      return KeyedSubtree(
+        key: key,
+        child: ContentRevenueBreakdownTab(
+          movie: movie,
+          theme: selectedThemeData,
+        ),
+      );
+    }
+
+    if (_selectedTab == _purchasedUsersTab) {
+      return KeyedSubtree(
+        key: key,
+        child: PurchasedUsersTab(
+          movie: movie,
+          theme: selectedThemeData,
+        ),
+      );
+    }
+
+    if (_selectedTab == _analyticsTab) {
+      return KeyedSubtree(
+        key: key,
+        child: AudienceAnalyticsTab(
+          movie: movie,
+          theme: selectedThemeData,
+        ),
+      );
+    }
+
     if (_selectedTab == _trailersTab) {
       return _trailersTabContent(key, movie, provider);
     }
@@ -607,7 +653,37 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
                   ),
                 ),
                 const SizedBox(height: 12),
-                _trailerCard(movie),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final previews = [
+                      _mediaPreviewCard(
+                        title: 'Movie Trailer',
+                        url: movie.trailerUrl,
+                      ),
+                      _mediaPreviewCard(
+                        title: 'Movie Teaser',
+                        url: movie.teaserUrl,
+                      ),
+                    ];
+                    if (constraints.maxWidth >= 900) {
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: previews[0]),
+                          const SizedBox(width: 12),
+                          Expanded(child: previews[1]),
+                        ],
+                      );
+                    }
+                    return Column(
+                      children: [
+                        previews[0],
+                        const SizedBox(height: 12),
+                        previews[1],
+                      ],
+                    );
+                  },
+                ),
               ],
             ),
           ),
@@ -641,6 +717,8 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
                 _metricChip(
                     'Rating', '${provider.ratingAvg.toStringAsFixed(1)} *'),
                 _metricChip('Rating Count', '${reviews.length}'),
+                _metricChip('Total Purchases',
+                    _compactNum(movie.totalPurchase ?? 0)),
                 _metricChip('Views', _compactNum(movie.views)),
                 _metricChip('Comments',
                     _compactNum(movie.fullAttempt ?? movie.numberOfAttempt)),
@@ -814,7 +892,18 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
           spacing: 8,
           runSpacing: 8,
           children: [
-            _metricChip('Revenue', _compactNum(movie.totalRevenue)),
+            _metricChip(
+              'Gross Revenue',
+              _compactNum(movie.effectiveMediaHouseGrossRevenue),
+            ),
+            _metricChip(
+              'Net Revenue',
+              _compactNum(movie.effectiveMediaHouseNetRevenue),
+            ),
+            _metricChip(
+              'Total Purchases',
+              _compactNum(movie.totalPurchase ?? 0),
+            ),
             _metricChip('Views', _compactNum(movie.views)),
             _metricChip('Likes', _compactNum(movie.ratingCount)),
             _metricChip(
@@ -893,13 +982,31 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Cast And Crew',
-          style: TextStyle(
-            color: selectedThemeData.primaryColor,
-            fontWeight: FontWeight.w700,
-            fontSize: 16,
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Cast And Crew',
+              style: TextStyle(
+                color: selectedThemeData.primaryColor,
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
+              ),
+            ),
+            ElevatedButton.icon(
+              onPressed: () => _showAddCastCrewDialog(context, movie, provider),
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('Add Cast & Crew', style: TextStyle(fontSize: 12)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: selectedThemeData.primaryColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 10),
         _castList(movie, provider),
@@ -931,6 +1038,22 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
             );
           },
         ),
+        if ((movie.teaserUrl ?? '').trim().isNotEmpty)
+          _actionButton(
+            label: 'Play Teaser',
+            icon: Icons.play_circle_outline,
+            color: const Color(0xFFE65100),
+            onTap: () {
+              provider.setValu(movie);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      TrailerPage(trailerUrl: movie.teaserUrl!),
+                ),
+              );
+            },
+          ),
         _actionButton(
           label: 'Watch Movie',
           icon: Icons.movie_filter,
@@ -939,24 +1062,32 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) =>
-                    TrailerPage(trailerUrl: movie.contentUrl ?? ''),
+                builder: (context) => SecureContentPage(
+                  contentId: (movie.id ?? widget.movieId).toString(),
+                  contentUrl: movie.contentUrl ?? '',
+                  contentType: secureContentType(movie.type),
+                ),
               ),
             );
           },
         ),
         _actionButton(
-          label: 'Edit Movie',
+          label: ContentTypeValue.isShortFilm(movie.type)
+              ? 'Edit Short Film'
+              : 'Edit Movie',
           icon: Icons.edit,
           color: const Color(0xFF1D4ED8),
-          onTap: () {
+          onTap: () async {
             provider.setValu(movie);
-            Navigator.push(
+            final updated = await Navigator.push<bool>(
               context,
               MaterialPageRoute(
                 builder: (context) => EditVideoMovie(movie: movie),
               ),
             );
+            if (updated == true && mounted) {
+              await _fetchData();
+            }
           },
         ),
         _actionButton(
@@ -1085,6 +1216,8 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
                 _tableRow(
                     'Production House', _displayValue(movie.mediaHouseName)),
                 _tableRow('Price', _formatPrice(movie.price)),
+                _tableRow(
+                    'Total Purchases', _compactNum(movie.totalPurchase ?? 0)),
                 _tableRow(
                     'Rental Duration', _displayValue(movie.rentlDuration)),
                 _tableRow(
@@ -1227,20 +1360,45 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
     );
   }
 
-  Widget _trailerCard(Content movie) {
+  Widget _mediaPreviewCard({
+    required String title,
+    required String? url,
+  }) {
     final selectedThemeData = Provider.of<ThemeProvider>(context).getTheme;
-    if ((movie.trailerUrl ?? '').trim().isEmpty) {
+    final mediaUrl = url?.trim() ?? '';
+    if (mediaUrl.isEmpty) {
       return Container(
-        padding: EdgeInsets.all(12),
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: selectedThemeData.cardColor,
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Center(
-          child: Text(
-            'Trailer not available',
-            style: TextStyle(color: selectedThemeData.canvasColor),
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                color: selectedThemeData.canvasColor,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 96,
+              child: Center(
+                child: Text(
+                  '$title not available',
+                  style: TextStyle(
+                    color:
+                        selectedThemeData.canvasColor.withValues(alpha: 0.65),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       );
     }
@@ -1254,7 +1412,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Movie Trailer',
+            title,
             style: TextStyle(
               color: selectedThemeData.canvasColor,
               fontWeight: FontWeight.w700,
@@ -1265,7 +1423,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
           SizedBox(
             height: 320,
             width: double.infinity,
-            child: TrailerPage(trailerUrl: movie.trailerUrl ?? ''),
+            child: TrailerPage(trailerUrl: mediaUrl),
           ),
         ],
       ),
@@ -1277,34 +1435,60 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
     final apiCast = provider.contentCastList;
     if (apiCast.isNotEmpty) {
       return SizedBox(
-        height: 118,
+        height: 125,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: apiCast.length,
           separatorBuilder: (_, __) => const SizedBox(width: 10),
           itemBuilder: (context, index) {
             final item = apiCast[index];
-            final name = (item['name'] ?? '').toString().trim();
-            final role = (item['role'] ?? '').toString().trim();
-            final image = (item['image'] ?? '').toString().trim();
+            final name = (item['name'] ?? item['castName'] ?? '').toString().trim();
+            final role = (item['role'] ?? item['castRole'] ?? '').toString().trim();
+            final image = (item['image'] ?? item['imageUrl'] ?? item['castImage'] ?? '').toString().trim();
             return SizedBox(
               width: 84,
               child: Column(
                 children: [
-                  CircleAvatar(
-                    radius: 30,
-                    backgroundColor: _avatarColor(index),
-                    backgroundImage:
-                        image.isNotEmpty ? NetworkImage(image) : null,
-                    child: image.isEmpty
-                        ? Text(
-                            _initials(name),
-                            style: TextStyle(
-                              color: selectedThemeData.cardColor,
-                              fontWeight: FontWeight.bold,
+                  Stack(
+                    children: [
+                      CircleAvatar(
+                        radius: 30,
+                        backgroundColor: _avatarColor(index),
+                        backgroundImage:
+                            image.isNotEmpty ? NetworkImage(image) : null,
+                        child: image.isEmpty
+                            ? Text(
+                                _initials(name),
+                                style: TextStyle(
+                                  color: selectedThemeData.cardColor,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              )
+                            : null,
+                      ),
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: InkWell(
+                          onTap: () => _showEditCastCrewDialog(
+                              context, item, movie, provider),
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: selectedThemeData.primaryColor,
+                              shape: BoxShape.circle,
+                              border:
+                                  Border.all(color: Colors.white, width: 1.5),
                             ),
-                          )
-                        : null,
+                            child: const Icon(
+                              Icons.edit,
+                              size: 12,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 6),
                   Text(
@@ -1338,27 +1522,60 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
     }
 
     return SizedBox(
-      height: 108,
+      height: 115,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: cast.length,
         separatorBuilder: (_, __) => const SizedBox(width: 10),
         itemBuilder: (context, index) {
           final name = cast[index];
+          final fallbackItem = {
+            'castId': 0,
+            'contentId': widget.movieId,
+            'name': name,
+            'role': '',
+            'description': '',
+            'image': '',
+          };
           return SizedBox(
-            width: 70,
+            width: 76,
             child: Column(
               children: [
-                CircleAvatar(
-                  radius: 30,
-                  backgroundColor: _avatarColor(index),
-                  child: Text(
-                    _initials(name),
-                    style: TextStyle(
-                      color: selectedThemeData.canvasColor,
-                      fontWeight: FontWeight.bold,
+                Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 30,
+                      backgroundColor: _avatarColor(index),
+                      child: Text(
+                        _initials(name),
+                        style: TextStyle(
+                          color: selectedThemeData.canvasColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                  ),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: InkWell(
+                        onTap: () => _showEditCastCrewDialog(
+                            context, fallbackItem, movie, provider),
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: selectedThemeData.primaryColor,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 1.5),
+                          ),
+                          child: const Icon(
+                            Icons.edit,
+                            size: 12,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 6),
                 Text(
@@ -1374,6 +1591,472 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
           );
         },
       ),
+    );
+  }
+
+  void _showAddCastCrewDialog(
+    BuildContext pageContext,
+    Content movie,
+    VideoProvider provider,
+  ) {
+    final selectedThemeData = Provider.of<ThemeProvider>(context, listen: false).getTheme;
+    final nameController = TextEditingController();
+    final roleController = TextEditingController();
+    final descriptionController = TextEditingController();
+
+    PlatformFile? selectedImageFile;
+    String uploadedImageUrl = '';
+    bool isUploadingImage = false;
+    bool isSaving = false;
+
+    showDialog(
+      context: pageContext,
+      barrierDismissible: !isSaving,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> pickImage() async {
+              try {
+                final result = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
+                  withData: true,
+                );
+                if (result != null && result.files.isNotEmpty) {
+                  setDialogState(() {
+                    selectedImageFile = result.files.single;
+                    isUploadingImage = true;
+                  });
+                  final url = await provider.uploadSingleImageFile(selectedImageFile!);
+                  setDialogState(() {
+                    if (url != null && url.isNotEmpty) {
+                      uploadedImageUrl = url;
+                    }
+                    isUploadingImage = false;
+                  });
+                }
+              } catch (e) {
+                setDialogState(() {
+                  isUploadingImage = false;
+                });
+                CustomToast.show(dialogContext, 'Failed to pick image: $e', isSuccess: false);
+              }
+            }
+
+            Future<void> onAddPressed() async {
+              final name = nameController.text.trim();
+              final role = roleController.text.trim();
+              if (name.isEmpty || role.isEmpty) {
+                CustomToast.show(dialogContext, 'Please enter name and role.', isSuccess: false);
+                return;
+              }
+
+              setDialogState(() {
+                isSaving = true;
+              });
+
+              if (selectedImageFile != null && uploadedImageUrl.isEmpty) {
+                final url = await provider.uploadSingleImageFile(selectedImageFile!);
+                if (url != null && url.isNotEmpty) {
+                  uploadedImageUrl = url;
+                }
+              }
+
+              final success = await provider.addDirectCastMember(
+                dialogContext,
+                contentId: widget.movieId,
+                name: name,
+                role: role,
+                description: descriptionController.text.trim(),
+                image: uploadedImageUrl,
+              );
+
+              if (success) {
+                if (dialogContext.mounted) {
+                  Navigator.of(dialogContext).pop();
+                }
+                await _fetchData();
+              } else {
+                setDialogState(() {
+                  isSaving = false;
+                });
+              }
+            }
+
+            return Dialog(
+              backgroundColor: selectedThemeData.cardColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Container(
+                width: 420,
+                padding: const EdgeInsets.all(20),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Add Cast & Crew',
+                            style: TextStyle(
+                              color: selectedThemeData.primaryColor,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.close, color: selectedThemeData.canvasColor),
+                            onPressed: isSaving ? null : () => Navigator.of(dialogContext).pop(),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Center(
+                        child: Stack(
+                          children: [
+                            CircleAvatar(
+                              radius: 40,
+                              backgroundColor: selectedThemeData.primaryColor.withOpacity(0.15),
+                              backgroundImage: uploadedImageUrl.isNotEmpty
+                                  ? NetworkImage(uploadedImageUrl)
+                                  : (selectedImageFile != null && selectedImageFile!.bytes != null
+                                      ? MemoryImage(selectedImageFile!.bytes!)
+                                      : null) as ImageProvider?,
+                              child: isUploadingImage
+                                  ? const CircularProgressIndicator(strokeWidth: 2)
+                                  : (uploadedImageUrl.isEmpty && selectedImageFile == null
+                                      ? Icon(Icons.person, size: 40, color: selectedThemeData.primaryColor)
+                                      : null),
+                            ),
+                            Positioned(
+                              right: 0,
+                              bottom: 0,
+                              child: InkWell(
+                                onTap: (isSaving || isUploadingImage) ? null : pickImage,
+                                child: Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: selectedThemeData.primaryColor,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 2),
+                                  ),
+                                  child: const Icon(Icons.camera_alt, size: 14, color: Colors.white),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      TextField(
+                        controller: nameController,
+                        enabled: !isSaving,
+                        style: TextStyle(color: selectedThemeData.canvasColor),
+                        decoration: InputDecoration(
+                          labelText: 'Name *',
+                          labelStyle: TextStyle(color: selectedThemeData.canvasColor.withOpacity(0.7)),
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: roleController,
+                        enabled: !isSaving,
+                        style: TextStyle(color: selectedThemeData.canvasColor),
+                        decoration: InputDecoration(
+                          labelText: 'Role / Designation *',
+                          labelStyle: TextStyle(color: selectedThemeData.canvasColor.withOpacity(0.7)),
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: descriptionController,
+                        enabled: !isSaving,
+                        maxLines: 2,
+                        style: TextStyle(color: selectedThemeData.canvasColor),
+                        decoration: InputDecoration(
+                          labelText: 'Description (Optional)',
+                          labelStyle: TextStyle(color: selectedThemeData.canvasColor.withOpacity(0.7)),
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: isSaving ? null : () => Navigator.of(dialogContext).pop(),
+                            child: Text('Cancel', style: TextStyle(color: selectedThemeData.canvasColor)),
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton(
+                            onPressed: (isSaving || isUploadingImage) ? null : onAddPressed,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: selectedThemeData.primaryColor,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            child: isSaving
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  )
+                                : const Text('Add'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showEditCastCrewDialog(
+    BuildContext pageContext,
+    Map<String, dynamic> item,
+    Content movie,
+    VideoProvider provider,
+  ) {
+    final selectedThemeData = Provider.of<ThemeProvider>(context, listen: false).getTheme;
+
+    final int castId = int.tryParse(item['castId']?.toString() ?? item['id']?.toString() ?? '0') ?? 0;
+    final int contentId = int.tryParse(item['contentId']?.toString() ?? '0') ?? widget.movieId;
+    final String initialName = (item['name'] ?? item['castName'] ?? '').toString();
+    final String initialRole = (item['role'] ?? item['castRole'] ?? '').toString();
+    final String initialDesc = (item['description'] ?? '').toString();
+    final String initialImage = (item['image'] ?? item['imageUrl'] ?? item['castImage'] ?? '').toString();
+    final int seasonId = int.tryParse(item['seasonId']?.toString() ?? '0') ?? 0;
+    final int shortId = int.tryParse(item['shortId']?.toString() ?? '0') ?? 0;
+
+    final nameController = TextEditingController(text: initialName);
+    final roleController = TextEditingController(text: initialRole);
+    final descriptionController = TextEditingController(text: initialDesc);
+
+    PlatformFile? selectedImageFile;
+    String currentImageUrl = initialImage;
+    bool isUploadingImage = false;
+    bool isSaving = false;
+
+    showDialog(
+      context: pageContext,
+      barrierDismissible: !isSaving,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> pickImage() async {
+              try {
+                final result = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
+                  withData: true,
+                );
+                if (result != null && result.files.isNotEmpty) {
+                  setDialogState(() {
+                    selectedImageFile = result.files.single;
+                    isUploadingImage = true;
+                  });
+                  final url = await provider.uploadSingleImageFile(selectedImageFile!);
+                  setDialogState(() {
+                    if (url != null && url.isNotEmpty) {
+                      currentImageUrl = url;
+                    }
+                    isUploadingImage = false;
+                  });
+                }
+              } catch (e) {
+                setDialogState(() {
+                  isUploadingImage = false;
+                });
+                CustomToast.show(dialogContext, 'Failed to pick image: $e', isSuccess: false);
+              }
+            }
+
+            Future<void> onUpdatePressed() async {
+              final name = nameController.text.trim();
+              final role = roleController.text.trim();
+              if (name.isEmpty || role.isEmpty) {
+                CustomToast.show(dialogContext, 'Please enter name and role.', isSuccess: false);
+                return;
+              }
+
+              setDialogState(() {
+                isSaving = true;
+              });
+
+              if (selectedImageFile != null && currentImageUrl == initialImage) {
+                final url = await provider.uploadSingleImageFile(selectedImageFile!);
+                if (url != null && url.isNotEmpty) {
+                  currentImageUrl = url;
+                }
+              }
+
+              final success = await provider.updateCastMember(
+                dialogContext,
+                castId: castId,
+                contentId: contentId > 0 ? contentId : widget.movieId,
+                name: name,
+                role: role,
+                description: descriptionController.text.trim(),
+                image: currentImageUrl,
+                seasonId: seasonId,
+                shortId: shortId,
+              );
+
+              if (success) {
+                if (dialogContext.mounted) {
+                  Navigator.of(dialogContext).pop();
+                }
+                await _fetchData();
+              } else {
+                setDialogState(() {
+                  isSaving = false;
+                });
+              }
+            }
+
+            return Dialog(
+              backgroundColor: selectedThemeData.cardColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Container(
+                width: 420,
+                padding: const EdgeInsets.all(20),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Edit Cast & Crew',
+                            style: TextStyle(
+                              color: selectedThemeData.primaryColor,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.close, color: selectedThemeData.canvasColor),
+                            onPressed: isSaving ? null : () => Navigator.of(dialogContext).pop(),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Center(
+                        child: Stack(
+                          children: [
+                            CircleAvatar(
+                              radius: 40,
+                              backgroundColor: selectedThemeData.primaryColor.withOpacity(0.15),
+                              backgroundImage: currentImageUrl.isNotEmpty
+                                  ? NetworkImage(currentImageUrl)
+                                  : (selectedImageFile != null && selectedImageFile!.bytes != null
+                                      ? MemoryImage(selectedImageFile!.bytes!)
+                                      : null) as ImageProvider?,
+                              child: isUploadingImage
+                                  ? const CircularProgressIndicator(strokeWidth: 2)
+                                  : (currentImageUrl.isEmpty && selectedImageFile == null
+                                      ? Icon(Icons.person, size: 40, color: selectedThemeData.primaryColor)
+                                      : null),
+                            ),
+                            Positioned(
+                              right: 0,
+                              bottom: 0,
+                              child: InkWell(
+                                onTap: (isSaving || isUploadingImage) ? null : pickImage,
+                                child: Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: selectedThemeData.primaryColor,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 2),
+                                  ),
+                                  child: const Icon(Icons.camera_alt, size: 14, color: Colors.white),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      TextField(
+                        controller: nameController,
+                        enabled: !isSaving,
+                        style: TextStyle(color: selectedThemeData.canvasColor),
+                        decoration: InputDecoration(
+                          labelText: 'Name *',
+                          labelStyle: TextStyle(color: selectedThemeData.canvasColor.withOpacity(0.7)),
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: roleController,
+                        enabled: !isSaving,
+                        style: TextStyle(color: selectedThemeData.canvasColor),
+                        decoration: InputDecoration(
+                          labelText: 'Role / Designation *',
+                          labelStyle: TextStyle(color: selectedThemeData.canvasColor.withOpacity(0.7)),
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: descriptionController,
+                        enabled: !isSaving,
+                        maxLines: 2,
+                        style: TextStyle(color: selectedThemeData.canvasColor),
+                        decoration: InputDecoration(
+                          labelText: 'Description (Optional)',
+                          labelStyle: TextStyle(color: selectedThemeData.canvasColor.withOpacity(0.7)),
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: isSaving ? null : () => Navigator.of(dialogContext).pop(),
+                            child: Text('Cancel', style: TextStyle(color: selectedThemeData.canvasColor)),
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton(
+                            onPressed: (isSaving || isUploadingImage) ? null : onUpdatePressed,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: selectedThemeData.primaryColor,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            child: isSaving
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  )
+                                : const Text('Update'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -1589,12 +2272,9 @@ class _MovieDetailsPageState extends State<MovieDetailsPage>
     return text;
   }
 
-  String _formatPrice(num? price) {
+  String _formatPrice(dynamic price) {
     if (price == null) return 'N/A';
-    final formatted = price % 1 == 0
-        ? NumberFormat.decimalPattern('en_IN').format(price.toInt())
-        : NumberFormat.decimalPattern('en_IN').format(price);
-    return 'Rs $formatted';
+    return formatCurrency(price, symbol: 'Rs ');
   }
 
   String _boolLabel(dynamic value) {

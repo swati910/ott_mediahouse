@@ -1,9 +1,11 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:media_house/app/ui/pages/DisplayTrailer.dart';
+import 'package:media_house/app/ui/pages/secure_content_page.dart';
 import 'package:media_house/data/models/response/series_detail_response.dart';
+import 'package:media_house/data/models/response/signed_playback.dart';
 import 'package:provider/provider.dart';
+import '../../../../core/utils/currency_formatter.dart';
 
 import '../../../../../domain/entities/cast_crew_model.dart';
 import '../../../../provider/series_provider.dart';
@@ -86,7 +88,7 @@ class _SeasonDetailPageState extends State<SeasonDetailPage> {
     final totalViews =
         _episodes.fold<int>(0, (sum, e) => sum + (e.viewCount ?? 0));
     final seasonAmount = season.amount ?? 0;
-    final totalRevenue = _episodes.fold<int>(
+    final totalRevenue = _episodes.fold<num>(
       0,
       (sum, e) => sum + (seasonAmount * (e.viewCount ?? 0)),
     );
@@ -200,7 +202,11 @@ class _SeasonDetailPageState extends State<SeasonDetailPage> {
             runSpacing: 10,
             children: [
               _statCard(
-                  theme, Icons.price_check, "Season Price", "${season.amount}"),
+                theme,
+                Icons.price_check,
+                "Season Price",
+                formatCurrency(season.amount, symbol: 'Rs '),
+              ),
               _statCard(
                   theme, Icons.list_alt_rounded, "Episodes", "$totalEpisodes"),
               _statCard(
@@ -210,7 +216,7 @@ class _SeasonDetailPageState extends State<SeasonDetailPage> {
                 theme,
                 Icons.currency_rupee_rounded,
                 "Revenue",
-                "Rs $totalRevenue",
+                formatCurrency(totalRevenue, symbol: 'Rs '),
               ),
             ],
           ),
@@ -274,26 +280,6 @@ class _SeasonDetailPageState extends State<SeasonDetailPage> {
           label: "Add Episode",
           icon: Icons.add_circle,
           onTap: () {
-            /*  if (_isSeasonPublished) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    "Published seasons cannot add episodes. Raise a ticket to admin for changes.",
-                  ),
-                ),
-              );
-              return;
-            }
-            if (_isSeasonDeactivated) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    "This season is deactivated. Raise a ticket to admin for further changes.",
-                  ),
-                ),
-              );
-              return;
-            } */
             _addEpisode(context);
           },
         ),
@@ -326,7 +312,11 @@ class _SeasonDetailPageState extends State<SeasonDetailPage> {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => TrailerPage(trailerUrl: ep.videoUrl ?? ''),
+                builder: (_) => SecureContentPage(
+                  contentId: ep.id?.toString() ?? '',
+                  contentUrl: ep.videoUrl ?? '',
+                  contentType: secureContentType(null, episode: true),
+                ),
               ),
             );
           },
@@ -384,7 +374,7 @@ class _SeasonDetailPageState extends State<SeasonDetailPage> {
                           Expanded(
                             child: Text(
                               (ep.title ?? '').trim().isEmpty
-                                  ? "Untitled Episode"
+                                   ? "Untitled Episode"
                                   : ep.title!,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -414,10 +404,16 @@ class _SeasonDetailPageState extends State<SeasonDetailPage> {
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          _metaChip(theme, Icons.currency_rupee_rounded,
-                              "Price Rs $amount"),
-                          _metaChip(theme, Icons.trending_up_rounded,
-                              "Revenue Rs $revenue"),
+                          _metaChip(
+                            theme,
+                            Icons.currency_rupee_rounded,
+                            "Price ${formatCurrency(amount, symbol: 'Rs ')}",
+                          ),
+                          _metaChip(
+                            theme,
+                            Icons.trending_up_rounded,
+                            "Revenue ${formatCurrency(revenue, symbol: 'Rs ')}",
+                          ),
                           _metaChip(theme, Icons.timer_outlined,
                               "${ep.runtime ?? 0} min"),
                           _metaChip(
@@ -715,7 +711,7 @@ class _SeasonDetailPageState extends State<SeasonDetailPage> {
 
     if (success) {
       setState(() {
-        final updatedAmount = int.tryParse('${body['amount']}');
+        final updatedAmount = num.tryParse('${body['amount']}');
         if (updatedAmount != null) {
           widget.seasonBundle.season.amount = updatedAmount;
           for (final episode in _episodes) {
@@ -1036,13 +1032,6 @@ class _SeasonDetailPageState extends State<SeasonDetailPage> {
         },
       ),
     );
-  }
-
-  int? _toIntOrNull(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    if (value == null) return null;
-    return int.tryParse(value.toString());
   }
 
   Future<void> _loadCastCrewForSeason() async {

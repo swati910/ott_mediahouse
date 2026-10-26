@@ -7,7 +7,7 @@ class MockNotificationService {
     UserModel(
       id: 1,
       name: 'Aarav Mehta',
-      email: 'aarav@filmytell.in',
+      email: 'aarav@filmytell.com',
       role: 'Admin',
       department: 'Operations',
       isOnline: true,
@@ -15,7 +15,7 @@ class MockNotificationService {
     UserModel(
       id: 2,
       name: 'Nisha Rao',
-      email: 'nisha@filmytell.in',
+      email: 'nisha@filmytell.com',
       role: 'Director',
       department: 'Creative',
       isOnline: true,
@@ -23,14 +23,14 @@ class MockNotificationService {
     UserModel(
       id: 3,
       name: 'Kabir Sethi',
-      email: 'kabir@filmytell.in',
+      email: 'kabir@filmytell.com',
       role: 'Actor',
       department: 'Talent',
     ),
     UserModel(
       id: 4,
       name: 'Meera Iyer',
-      email: 'meera@filmytell.in',
+      email: 'meera@filmytell.com',
       role: 'Producer',
       department: 'Production Team',
       isOnline: true,
@@ -45,7 +45,7 @@ class MockNotificationService {
     UserModel(
       id: 6,
       name: 'Sana Khan',
-      email: 'sana@filmytell.in',
+      email: 'sana@filmytell.com',
       role: 'Actor',
       department: 'Talent',
     ),
@@ -115,13 +115,17 @@ class MockNotificationService {
           case NotificationHistoryFilter.thisWeek:
             return now.difference(item.sentAt).inDays <= 7;
           case NotificationHistoryFilter.thisMonth:
-            return item.sentAt.year == now.year && item.sentAt.month == now.month;
+            return item.sentAt.year == now.year &&
+                item.sentAt.month == now.month;
           case NotificationHistoryFilter.custom:
             if (startDate == null || endDate == null) {
-              return item.sentAt.year == now.year && item.sentAt.month == now.month;
+              return item.sentAt.year == now.year &&
+                  item.sentAt.month == now.month;
             }
-            final start = DateTime(startDate.year, startDate.month, startDate.day);
-            final end = DateTime(endDate.year, endDate.month, endDate.day, 23, 59);
+            final start =
+                DateTime(startDate.year, startDate.month, startDate.day);
+            final end =
+                DateTime(endDate.year, endDate.month, endDate.day, 23, 59);
             return !item.sentAt.isBefore(start) && !item.sentAt.isAfter(end);
         }
       });
@@ -167,9 +171,10 @@ class MockNotificationService {
           : NotificationDeliveryStatus.scheduled,
       notificationType: type,
       priority: settings.priority,
-      recipientCount: settings.recipientType == NotificationRecipientType.selectedUsers
-          ? settings.selectedUserIds.length
-          : 128,
+      recipientCount:
+          settings.recipientType == NotificationRecipientType.selectedUsers
+              ? settings.selectedUserIds.length
+              : 128,
     );
     _notifications.insert(0, model);
     return model;

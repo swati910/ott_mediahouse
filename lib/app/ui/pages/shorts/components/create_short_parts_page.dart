@@ -14,6 +14,7 @@ import 'package:media_house/app/provider/shorts_provider.dart';
 import 'package:media_house/app/widget/show_toast.dart';
 import 'package:provider/provider.dart';
 import 'package:universal_html/html.dart' as html;
+import '../../../widget/multipart_upload_progress_widget.dart';
 
 import '../../../../../data/models/response/content_image_upload_response.dart';
 import '../../../../../data/models/response/video_upload_response.dart';
@@ -746,6 +747,23 @@ class _CreateShortPartsDialogState extends State<CreateShortPartsDialog> {
             uploading: draft.isUploadingVideo,
             uploaded: draft.videoUrl?.isNotEmpty == true,
             onTap: () => _pickVideo(draft),
+          ),
+          Consumer<ShortProvider>(
+            builder: (context, provider, _) {
+              final taskId = 'part_${draft.partNumber}';
+              final info = provider.getPartProgressInfo(taskId);
+              if (info == null) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: MultipartUploadProgressWidget(
+                  info: info,
+                  onPause: () => provider.pausePartMultipartUpload(taskId),
+                  onResume: () => provider.resumePartMultipartUpload(taskId),
+                  onRetry: () => provider.retryPartMultipartUpload(taskId),
+                  onAbort: () => provider.abortPartMultipartUpload(taskId),
+                ),
+              );
+            },
           ),
           const SizedBox(height: 12),
           _uploadRow(

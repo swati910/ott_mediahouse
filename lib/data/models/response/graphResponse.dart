@@ -12,23 +12,28 @@ class GraphResponse {
   });
 
   factory GraphResponse.fromJson(Map<String, dynamic> json) => GraphResponse(
-    message: json["message"],
-    data: json["data"] == null ? [] : List<GraphData>.from(json["data"]!.map((x) => GraphData.fromJson(x))),
-    statusCode: json["statusCode"],
-    success: json["success"],
-  );
+        message: json["message"],
+        data: json["data"] == null
+            ? []
+            : List<GraphData>.from(
+                json["data"]!.map((x) => GraphData.fromJson(x)),
+              ),
+        statusCode: json["statusCode"],
+        success: json["success"],
+      );
 
   Map<String, dynamic> toJson() => {
-    "message": message,
-    "data": data == null ? [] : List<dynamic>.from(data!.map((x) => x.toJson())),
-    "statusCode": statusCode,
-    "success": success,
-  };
+        "message": message,
+        "data":
+            data == null ? [] : List<dynamic>.from(data!.map((x) => x.toJson())),
+        "statusCode": statusCode,
+        "success": success,
+      };
 }
 
 class GraphData {
   String? label;
-  int? value;
+  double? value;
 
   GraphData({
     this.label,
@@ -36,12 +41,14 @@ class GraphData {
   });
 
   factory GraphData.fromJson(Map<String, dynamic> json) => GraphData(
-    label: json["label"],
-    value: json["value"],
-  );
+        label: json["label"]?.toString(),
+        value: json["value"] is num
+            ? (json["value"] as num).toDouble()
+            : double.tryParse(json["value"]?.toString() ?? ''),
+      );
 
   Map<String, dynamic> toJson() => {
-    "label": label,
-    "value": value,
-  };
+        "label": label,
+        "value": value,
+      };
 }

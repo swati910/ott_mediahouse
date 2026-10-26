@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import 'package:media_house/app/provider/themeProvider.dart';
 
 import '../../../core/utils/sharepreferences.dart';
+import '../../../core/utils/currency_formatter.dart';
 
 class AnalyticsPage extends StatefulWidget {
   const AnalyticsPage({super.key});
@@ -315,11 +316,11 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                                   selectedThemeData,
                                 )),
                                 DataCell(_moneyCell(
-                                  _formatNumber(_toDouble(movie.revenue)),
+                                  formatAmount(movie.revenue),
                                   selectedThemeData,
                                 )),
                                 DataCell(_moneyCell(
-                                  _formatNumber(_toDouble(movie.netRevenue)),
+                                  formatAmount(movie.netRevenue),
                                   selectedThemeData,
                                 )),
                                 DataCell(
@@ -453,12 +454,17 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     );
   }
 
+  DateTimeRange _defaultCurrentMonthRange() {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, 1);
+    final end = DateTime(now.year, now.month + 1, 0);
+    return DateTimeRange(start: start, end: end);
+  }
+
   @override
   void initState() {
     super.initState();
-    final now = DateTime.now();
-    _reportDateRange =
-        DateTimeRange(start: now.subtract(const Duration(days: 30)), end: now);
+    _reportDateRange = _defaultCurrentMonthRange();
     _initData();
   }
 
@@ -543,22 +549,14 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       _districtController.clear();
       _talukaController.clear();
       _cityController.clear();
-      final now = DateTime.now();
-      _reportDateRange = DateTimeRange(
-        start: now.subtract(const Duration(days: 30)),
-        end: now,
-      );
+      _reportDateRange = _defaultCurrentMonthRange();
     });
     provider.clearStateOptions();
     await _applyReportFilters();
   }
 
   Future<void> _pickReportDateRange() async {
-    final initial = _reportDateRange ??
-        DateTimeRange(
-          start: DateTime.now().subtract(const Duration(days: 30)),
-          end: DateTime.now(),
-        );
+    final initial = _reportDateRange ?? _defaultCurrentMonthRange();
     final picked = await showDialog<DateTimeRange>(
       context: context,
       builder: (dialogContext) {
@@ -1137,7 +1135,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                         selectedThemeData,
                         Icons.currency_rupee_rounded,
                         "Revenue",
-                        _formatNumber(_toDouble(movie.revenue)),
+                        formatAmount(movie.revenue),
                       ),
                       _compactReportChip(
                         selectedThemeData,
@@ -1149,7 +1147,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                         selectedThemeData,
                         Icons.account_balance_wallet_outlined,
                         "Net Revenue",
-                        _formatNumber(_toDouble(movie.netRevenue)),
+                        formatAmount(movie.netRevenue),
                       ),
                     ],
                   ),
@@ -1257,21 +1255,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                       movie.movieName ?? '-',
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
-                        color: selectedThemeData.primaryColor,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text("Release: ${movie.releasedDate ?? '-'}"),
-                    Text("Views: ${_formatNumber(_toInt(movie.views))}"),
-                    Text("Revenue: ${_formatNumber(_toDouble(movie.revenue))}"),
-                    Text("Commission: ${movie.price ?? 0}%"),
-                    Text(
-                        "Net Revenue: ${_formatNumber(_toInt(movie.netRevenue))}"),
-                    const SizedBox(height: 6),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: movie.views == null
                             ? null
                             : () {
                                 Navigator.push(
@@ -1379,7 +1362,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             SizedBox(
               width: cardWidth,
               child: _buildSummaryCard(
-                title: "View Revenue",
+                title: "Net Revenue",
                 value: "₹${_formatNumber(data.viewRevenue ?? 0)}",
                 icon: Icons.currency_rupee_rounded,
                 color: Colors.teal,

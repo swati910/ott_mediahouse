@@ -22,17 +22,20 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _initializeSplash() async {
     await getData();
+    if (!mounted) return;
     Timer(const Duration(seconds: 2), _navigateToNextScreen);
   }
 
   Future<void> getData() async {
     final loggedIn = await AuthService.isAuthenticated();
+    if (!mounted) return;
     setState(() {
       isLoggedIn = loggedIn;
     });
   }
 
   void _navigateToNextScreen() {
+    if (!mounted) return;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(

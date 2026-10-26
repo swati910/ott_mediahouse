@@ -82,7 +82,7 @@ class _TrailerPageState extends State<TrailerPage> with WidgetsBindingObserver {
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Unable to load media: $error';
+      _errorMessage = 'Unable to load the media. Please try again.';
       });
     }
   }

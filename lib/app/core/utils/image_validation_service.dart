@@ -120,7 +120,8 @@ class ImageValidationService {
         final max = ImageValidationConstants.posterMaxSizeMB * 1024 * 1024;
         if (sizeInBytes < min || sizeInBytes > max) {
           return ImageValidationResult.invalid(
-            ImageValidationConstants.invalidPosterSize,
+            'Selected file size is ${_formatFileSize(sizeInBytes)}. '
+            '${ImageValidationConstants.invalidPosterSize}',
           );
         }
         return ImageValidationResult.valid();
@@ -129,7 +130,8 @@ class ImageValidationService {
         if (sizeInBytes >
             ImageValidationConstants.bannerMaxSizeMB * 1024 * 1024) {
           return ImageValidationResult.invalid(
-            ImageValidationConstants.invalidBannerSize,
+            'Selected file size is ${_formatFileSize(sizeInBytes)}. '
+            '${ImageValidationConstants.invalidBannerSize}',
           );
         }
         return ImageValidationResult.valid();
@@ -137,7 +139,8 @@ class ImageValidationService {
         if (sizeInBytes >
             ImageValidationConstants.thumbnailMaxSizeMB * 1024 * 1024) {
           return ImageValidationResult.invalid(
-            ImageValidationConstants.invalidThumbnailSize,
+            'Selected file size is ${_formatFileSize(sizeInBytes)}. '
+            '${ImageValidationConstants.invalidThumbnailSize}',
           );
         }
         return ImageValidationResult.valid();
@@ -153,47 +156,12 @@ class ImageValidationService {
   }) {
     switch (type) {
       case ImageValidationType.poster:
-        final exact = width == ImageValidationConstants.posterWidth &&
-            height == ImageValidationConstants.posterHeight;
-        final largerWithRatio = width >= ImageValidationConstants.posterWidth &&
-            height >= ImageValidationConstants.posterHeight &&
-            _matchesRatio(
-              width,
-              height,
-              ImageValidationConstants.posterAspectRatio,
-            );
-        if (exact || largerWithRatio) return ImageValidationResult.valid();
-        return ImageValidationResult.invalid(
-          ImageValidationConstants.invalidPosterDimensions,
-        );
       case ImageValidationType.banner:
-        final exact = width == ImageValidationConstants.bannerWidth &&
-            height == ImageValidationConstants.bannerHeight;
-        if (exact &&
-            _matchesRatio(
-              width,
-              height,
-              ImageValidationConstants.bannerAspectRatio,
-            )) {
-          return ImageValidationResult.valid();
-        }
-        return ImageValidationResult.invalid(
-          ImageValidationConstants.invalidBannerDimensions,
-        );
       case ImageValidationType.thumbnail:
-        final exact = width == ImageValidationConstants.thumbnailWidth &&
-            height == ImageValidationConstants.thumbnailHeight;
-        if (exact &&
-            _matchesRatio(
-              width,
-              height,
-              ImageValidationConstants.thumbnailAspectRatio,
-            )) {
-          return ImageValidationResult.valid();
-        }
-        return ImageValidationResult.invalid(
-          ImageValidationConstants.invalidThumbnailDimensions,
-        );
+        // Dimensions are recommendations for these images, not upload
+        // requirements. A successfully decoded image with an allowed format
+        // and file size is accepted.
+        return ImageValidationResult.valid();
       case ImageValidationType.tvBanner:
         final exact = width == ImageValidationConstants.tvBannerWidth &&
             height == ImageValidationConstants.tvBannerHeight;
@@ -207,8 +175,11 @@ class ImageValidationService {
     }
   }
 
-  static bool _matchesRatio(int width, int height, double ratio) {
-    return (width / height - ratio).abs() <= 0.01;
+  static String _formatFileSize(int sizeInBytes) {
+    if (sizeInBytes >= 1024 * 1024) {
+      return '${(sizeInBytes / (1024 * 1024)).toStringAsFixed(2)} MB';
+    }
+    return '${(sizeInBytes / 1024).toStringAsFixed(0)} KB';
   }
 
   static String _extension(String fileName) {

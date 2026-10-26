@@ -54,6 +54,10 @@ class MediaHouseSettlement {
   final double otherDeductions;
   final double totalDeductions;
   final double finalPayableAmount;
+  final bool walletCredited;
+  final DateTime? walletCreditedAt;
+  final String? walletTransactionReference;
+  final double walletCreditedAmount;
 
   const MediaHouseSettlement({
     required this.settlementId,
@@ -81,6 +85,10 @@ class MediaHouseSettlement {
     required this.otherDeductions,
     required this.totalDeductions,
     required this.finalPayableAmount,
+    this.walletCredited = false,
+    this.walletCreditedAt,
+    this.walletTransactionReference,
+    this.walletCreditedAmount = 0,
   });
 
   factory MediaHouseSettlement.fromJson(Map<String, dynamic> json) {
@@ -113,6 +121,19 @@ class MediaHouseSettlement {
       otherDeductions: _double(json['otherDeductions']),
       totalDeductions: _double(json['totalDeductions']),
       finalPayableAmount: _double(json['finalPayableAmount']),
+      walletCredited: json['walletCredited'] == true,
+      walletCreditedAt:
+          _date(json['walletCreditedAt'] ?? json['walletCreditDate']),
+      walletTransactionReference: _nullableText(
+        json['walletTransactionReference'] ??
+            json['walletTransactionId'] ??
+            json['transactionReference'],
+      ),
+      walletCreditedAmount: _double(
+        json['walletCreditedAmount'] ??
+            json['creditedAmount'] ??
+            json['finalPayableAmount'],
+      ),
     );
   }
 
@@ -140,6 +161,10 @@ class MediaHouseSettlement {
         'otherDeductions': otherDeductions,
         'totalDeductions': totalDeductions,
         'finalPayableAmount': finalPayableAmount,
+        'walletCredited': walletCredited,
+        'walletCreditedAt': walletCreditedAt?.toUtc().toIso8601String(),
+        'walletTransactionReference': walletTransactionReference,
+        'walletCreditedAmount': walletCreditedAmount,
       };
 
   String? get batchReference {

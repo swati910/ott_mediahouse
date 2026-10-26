@@ -12,6 +12,7 @@ import 'package:media_house/app/ui/pages/profile%20page/ProfilePage.dart';
 import 'package:media_house/app/ui/pages/settings_page/settings_page.dart';
 import 'package:media_house/app/ui/pages/settlemet_page/SettlementPage.dart';
 import 'package:media_house/app/ui/pages/uploadContent_page/select_upload_type.dart';
+import 'package:media_house/app/ui/pages/wallet_page/wallet_page.dart';
 import 'package:media_house/device/utils/ResponsiveWidget.dart';
 import 'package:provider/provider.dart';
 
@@ -36,6 +37,7 @@ class _NavigationPageState extends State<NavigationPage> {
     PageData(title: 'Analytics', page: AnalyticsPage()),
     PageData(title: 'Documents', page: DocumentsPage()),
     PageData(title: 'Settlement', page: SettlementPage()),
+    PageData(title: 'Wallet', page: WalletPage()),
     PageData(title: 'Notifications', page: NotificationsScreen()),
     PageData(title: 'Profile', page: ProfilePage()),
     PageData(title: 'Settings', page: ProductionSettingsPage()),
@@ -50,6 +52,7 @@ class _NavigationPageState extends State<NavigationPage> {
     Icons.bar_chart_sharp,
     Icons.document_scanner_outlined,
     Icons.transform_sharp,
+    Icons.account_balance_wallet_outlined,
     Icons.notifications_active_outlined,
     Icons.person,
     Icons.settings

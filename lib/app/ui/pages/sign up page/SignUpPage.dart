@@ -84,6 +84,8 @@ class _SignUpPageState extends State<SignUpPage> {
     'gstCertificates': 'GST Certificate',
     'registrationCertificate': 'Registration Certificate',
     'shopAct': 'Shop Act/Udyam Aadhaar',
+    'password': 'Password',
+    'confirmPassword': 'Confirm Password',
   };
 
   final Set<String> _requiredFields = {
@@ -101,6 +103,8 @@ class _SignUpPageState extends State<SignUpPage> {
     'bankName',
     'bankAccountNumber',
     'bankIFSCNumber',
+    'password',
+    'confirmPassword',
   };
 
   final Set<String> _emailFields = {
@@ -127,11 +131,11 @@ class _SignUpPageState extends State<SignUpPage> {
     'registrationCertificate',
   };
   final Set<String> _requiredUploadFields = {
-    'registrationCertificate',
+    //  'registrationCertificate',
     'adharCard',
     'panCard',
     'bankProof',
-    'gstCertificates',
+    //'gstCertificates',
     'addressProof',
   };
 
@@ -171,6 +175,8 @@ class _SignUpPageState extends State<SignUpPage> {
     'email',
     'emailId',
     'mobileNumber',
+    'password',
+    'confirmPassword',
   ];
 
   final List<String> _stepFiveFields = [
@@ -223,107 +229,116 @@ class _SignUpPageState extends State<SignUpPage> {
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          return Center(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                bottom: MediaQuery.of(context).viewInsets.bottom,
+          return SingleChildScrollView(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: 20 + MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: (constraints.maxHeight -
+                        40 -
+                        MediaQuery.of(context).viewInsets.bottom)
+                    .clamp(0.0, double.infinity),
               ),
-              child: SizedBox(
-                width:
-                    ResponsiveWidget.isMobile(context) ? double.infinity : 700,
-                child: Consumer<SignUpProvider>(
-                  builder: (context, signUpProvider, child) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          decoration: BoxDecoration(
-                            color: selectedThemeData.canvasColor
-                                .withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(
-                              color: selectedThemeData.dividerColor
-                                  .withValues(alpha: 0.25),
+              child: Center(
+                child: SizedBox(
+                  width:
+                      ResponsiveWidget.isMobile(context) ? double.infinity : 700,
+                  child: Consumer<SignUpProvider>(
+                    builder: (context, signUpProvider, child) {
+                      return Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            decoration: BoxDecoration(
+                              color: selectedThemeData.canvasColor
+                                  .withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
+                                color: selectedThemeData.dividerColor
+                                    .withValues(alpha: 0.25),
+                              ),
                             ),
-                          ),
-                          child: Column(
-                            children: [
-                              _buildHeaderCard(selectedThemeData),
-                              _buildProgressIndicator(selectedThemeData),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 20, vertical: 10),
-                                child: Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: selectedThemeData
-                                        .scaffoldBackgroundColor,
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                      color: selectedThemeData.dividerColor
-                                          .withValues(alpha: 0.2),
+                            child: Column(
+                              children: [
+                                _buildHeaderCard(selectedThemeData),
+                                _buildProgressIndicator(selectedThemeData),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 20, vertical: 10),
+                                  child: Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: selectedThemeData
+                                          .scaffoldBackgroundColor,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: selectedThemeData.dividerColor
+                                            .withValues(alpha: 0.2),
+                                      ),
                                     ),
-                                  ),
-                                  child: Form(
-                                    key: _stepKeys[_currentStep],
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          _stepTitle,
-                                          style: TextStyle(
-                                            color:
-                                                selectedThemeData.primaryColor,
-                                            fontSize: 28,
-                                            fontWeight: FontWeight.bold,
+                                    child: Form(
+                                      key: _stepKeys[_currentStep],
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            _stepTitle,
+                                            style: TextStyle(
+                                              color:
+                                                  selectedThemeData.primaryColor,
+                                              fontSize: 28,
+                                              fontWeight: FontWeight.bold,
+                                            ),
                                           ),
-                                        ),
-                                        const SizedBox(height: 10),
-                                        ..._buildFields(
-                                          signUpProvider,
-                                          _currentStepFields,
-                                          selectedThemeData,
-                                        ),
-                                      ],
+                                          const SizedBox(height: 10),
+                                          ..._buildFields(
+                                            signUpProvider,
+                                            _currentStepFields,
+                                            selectedThemeData,
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
+                                _buildFooter(selectedThemeData, signUpProvider),
+                              ],
+                            ),
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                'Already have an account?',
+                                style: TextStyle(
+                                  color: selectedThemeData.canvasColor,
+                                  fontSize: 14,
+                                ),
                               ),
-                              _buildFooter(selectedThemeData, signUpProvider),
+                              TextButton(
+                                onPressed: _navigateToSignIn,
+                                child: Text(
+                                  'Sign In',
+                                  style: TextStyle(
+                                    color: selectedThemeData.primaryColor,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
-                        ),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'Already have an account?',
-                              style: TextStyle(
-                                color: selectedThemeData.canvasColor,
-                                fontSize: 14,
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: _navigateToSignIn,
-                              child: Text(
-                                'Sign In',
-                                style: TextStyle(
-                                  color: selectedThemeData.primaryColor,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                      ],
-                    );
-                  },
+                        ],
+                      );
+                    },
+                  ),
                 ),
               ),
             ),
@@ -362,6 +377,19 @@ class _SignUpPageState extends State<SignUpPage> {
 
       if (key == 'state') {
         return _buildStateField(provider, themeData);
+      }
+
+      if (key == 'password' || key == 'confirmPassword') {
+        return CustomTextField(
+          controller: provider.controller(key),
+          hintText: 'Enter ${_labels[key] ?? key}',
+          label: _labels[key] ?? key,
+          showRequiredAsterisk: true,
+          textInputType: TextInputType.visiblePassword,
+          isPassword: true,
+          isValidator: false,
+          validator: (value) => _validateFieldByKey(key, provider),
+        );
       }
 
       String? Function(String?)? validator;
@@ -805,6 +833,7 @@ class _SignUpPageState extends State<SignUpPage> {
     }
 
     final result = await signUpProvider.submitSignUp();
+    if (!mounted) return;
     final success = result['success'] == true;
 
     CustomToast.show(
@@ -813,7 +842,7 @@ class _SignUpPageState extends State<SignUpPage> {
       isSuccess: success,
     );
 
-    if (success && mounted) {
+    if (success) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const SignInPage()),
@@ -875,6 +904,19 @@ class _SignUpPageState extends State<SignUpPage> {
 
     if (key == 'firmType' || key == 'country' || key == 'state') {
       return value.isEmpty ? '${_labels[key] ?? key} is required' : null;
+    }
+
+    if (key == 'password') {
+      if (value.isEmpty) return 'Password is required';
+      if (value.length < 6) return 'Password must be at least 6 characters';
+      return null;
+    }
+
+    if (key == 'confirmPassword') {
+      if (value.isEmpty) return 'Confirm Password is required';
+      final pass = provider.controller('password').text.trim();
+      if (value != pass) return 'Passwords do not match';
+      return null;
     }
 
     final isRequired = _requiredFields.contains(key);

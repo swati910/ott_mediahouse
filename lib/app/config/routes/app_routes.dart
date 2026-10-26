@@ -12,6 +12,7 @@ class AppRoutes {
 
   static const notificationPage = '/notification';
   static const settlement = '/settlement';
+  static const wallet = '/production-house/wallet';
   static const analytics = '/analytics';
   static const helpSupport = '/help_support';
 

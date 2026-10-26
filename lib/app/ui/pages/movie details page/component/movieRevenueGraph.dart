@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:media_house/domain/entities/content.dart';
 import 'package:provider/provider.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
+import '../../../../core/utils/currency_formatter.dart';
 
 import '../../../../../data/models/response/graphResponse.dart';
 import '../../../../provider/mediaHouseProvider.dart';
@@ -471,7 +472,7 @@ class _MovieRevenueGraphState extends State<MovieRevenueGraph> {
               runSpacing: 8,
               children: [
                 _chip(theme,
-                    'Revenue Total: ${_revenueTotal.toStringAsFixed(0)}'),
+                    'Revenue Total: ${formatAmount(_revenueTotal)}'),
                 _chip(theme, 'Views Total: ${_viewsTotal.toStringAsFixed(0)}'),
                 _chip(theme, 'Likes Total: ${_likesTotal.toStringAsFixed(0)}'),
               ],

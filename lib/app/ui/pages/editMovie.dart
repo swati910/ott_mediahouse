@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:media_house/app/ui/pages/uploadContent_page/component/upload_form_helpers.dart';
 import 'package:media_house/app/ui/pages/uploadContent_page/component/upload_media_helpers.dart';
+import 'package:media_house/app/ui/widget/multipart_upload_progress_widget.dart';
 import 'package:media_house/app/widget/custom_textfield.dart';
 import 'package:provider/provider.dart';
 import '../../../../../device/utils/ResponsiveWidget.dart';
@@ -8,8 +9,11 @@ import '../../../domain/entities/content.dart';
 import '../../provider/themeProvider.dart';
 import '../../provider/videoProvider.dart';
 import '../../widget/show_toast.dart';
+import 'package:media_house/app/ui/pages/DisplayTrailer.dart';
 import 'uploadContent_page/upload_video.dart';
 import '../../core/content/content_type.dart';
+import '../../core/upload/s3_multipart_upload_service.dart';
+import '../../core/utils/image_validation_service.dart';
 
 class EditVideoMovie extends StatefulWidget {
   final Content movie;
@@ -24,7 +28,11 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
 
   int _currentPage = 0;
   bool _isSubmitting = false;
-  int get _totalSteps => _isApproved ? 2 : 3;
+  bool _isLoadingMovie = true;
+  bool _hasError = false;
+  String _errorMessage = '';
+
+  int get _totalSteps => 3;
   int get _lastPageIndex => _totalSteps - 1;
   bool get _isMobile => ResponsiveWidget.isMobile(context);
   EdgeInsets get _pagePadding =>
@@ -57,23 +65,44 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
   bool get _isMovie => ContentTypeValue.isMovieLike(widget.movie.type);
   bool get _isApproved =>
       (widget.movie.approvalStatus ?? '').toLowerCase() == "approved";
+
   @override
   void initState() {
-    // TODO: implement initState
     super.initState();
-
     getMediaHouse();
   }
 
   void getMediaHouse() async {
-    final provider = Provider.of<VideoProvider>(context, listen: false);
-    provider.disposeData();
-    provider.setValu(widget.movie);
-    await provider.fetchGroupedLanguages();
-    final content = await provider.getContentById(widget.movie.id!);
-    if (!mounted) return;
-    if (content != null) {
-      provider.setValu(content);
+    setState(() {
+      _isLoadingMovie = true;
+      _hasError = false;
+      _errorMessage = '';
+    });
+    try {
+      final provider = Provider.of<VideoProvider>(context, listen: false);
+      provider.disposeData();
+      provider.setValu(widget.movie);
+      await provider.fetchGroupedLanguages();
+      final content = await provider.getContentById(widget.movie.id!);
+      if (!mounted) return;
+      if (content != null) {
+        provider.setValu(content);
+      } else {
+        _hasError = true;
+        _errorMessage = 'Unable to fetch complete movie details from backend.';
+      }
+      await provider.fetchCastByContentId(widget.movie.id!);
+    } catch (e) {
+      if (mounted) {
+        _hasError = true;
+        _errorMessage = 'Failed to load movie details: $e';
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingMovie = false;
+        });
+      }
     }
   }
 
@@ -105,6 +134,71 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
             ],
           ),
           child: Consumer<VideoProvider>(builder: (context, provider, child) {
+            if (_isLoadingMovie) {
+              return Column(
+                children: [
+                  _buildHeader(selectedThemeData),
+                  Expanded(
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircularProgressIndicator(
+                              color: selectedThemeData.primaryColor),
+                          const SizedBox(height: 16),
+                          Text(
+                            "Loading movie details...",
+                            style: TextStyle(
+                              color: selectedThemeData.canvasColor,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }
+
+            if (_hasError) {
+              return Column(
+                children: [
+                  _buildHeader(selectedThemeData),
+                  Expanded(
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.error_outline,
+                              color: Colors.red, size: 48),
+                          const SizedBox(height: 16),
+                          Text(
+                            _errorMessage,
+                            style: TextStyle(
+                              color: selectedThemeData.canvasColor,
+                              fontSize: 14,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: getMediaHouse,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: selectedThemeData.primaryColor,
+                              foregroundColor: Colors.white,
+                            ),
+                            child: const Text("Retry"),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }
+
             return Column(
               children: [
                 _buildHeader(selectedThemeData),
@@ -128,113 +222,22 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
   }
 
   List<Widget> _moviePages(ThemeData theme, VideoProvider provider) {
-    final pages = <Widget>[
-      _commonPricingPage(theme, provider, 1),
+    return <Widget>[
+      _moviePageOne(theme, provider),
+      _moviePageTwo(theme, provider),
       _moviePageThree(theme, provider),
     ];
-    if (!_isApproved) {
-      pages.insert(0, _moviePageOne(theme, provider));
-    }
-    return pages;
   }
 
   List<Widget> _seriesPages(ThemeData theme, VideoProvider provider) {
-    final pages = <Widget>[
-      _commonPricingPage(theme, provider, 0),
+    return <Widget>[
+      _seriesPageOne(theme, provider),
+      _moviePageTwo(theme, provider),
       _seriesPageThree(theme, provider),
     ];
-    if (!_isApproved) {
-      pages.insert(0, _seriesPageOne(theme, provider));
-    }
-    return pages;
   }
 
   Widget _moviePageOne(ThemeData theme, VideoProvider provider) {
-    return SingleChildScrollView(
-      padding: _pagePadding,
-      child: Column(
-        children: [
-          UploadFormHelpers.buildSectionCard(
-            "Language & Basic Details",
-            [
-              _isApproved
-                  ? SizedBox.shrink()
-                  : UploadFormHelpers.buildModernMultiSelectDropdownField(
-                      'Languages',
-                      provider.languageOptions,
-                      context,
-                      theme,
-                      groupedItems: provider.groupedLanguageOptions,
-                    ),
-              _isApproved ? SizedBox.shrink() : const SizedBox(height: 16),
-              _isApproved
-                  ? SizedBox.shrink()
-                  : CustomTextField(
-                      controller: provider.titleController,
-                      hintText: "Enter movie title",
-                      label: "Title",
-                      textInputType: TextInputType.text,
-                    ),
-              _isApproved
-                  ? SizedBox.shrink()
-                  : CustomTextField(
-                      controller: provider.descriptionController,
-                      hintText: "Enter description",
-                      label: "Description",
-                      textInputType: TextInputType.text,
-                    ),
-              _isApproved
-                  ? SizedBox.shrink()
-                  : CustomTextField(
-                      controller: provider.runTimeController,
-                      hintText: "Enter runtime in minutes",
-                      label: "Runtime (min)",
-                      textInputType: TextInputType.number,
-                    ),
-            ],
-            theme,
-          ),
-          const SizedBox(height: 8),
-          _isApproved
-              ? SizedBox.shrink()
-              : UploadFormHelpers.buildSectionCard(
-                  "Cast And Crew",
-                  [
-                    _castImageSection(theme, provider),
-                    const SizedBox(height: 8),
-                    _crewListSection(theme, provider),
-                  ],
-                  theme,
-                ),
-          const SizedBox(height: 8),
-          _isApproved
-              ? SizedBox.shrink()
-              : UploadFormHelpers.buildSectionCard(
-                  "Classification",
-                  [
-                    UploadFormHelpers.buildModernDropdownField(
-                      'Age Rating',
-                      ageRatings,
-                      context,
-                      provider,
-                      theme,
-                    ),
-                    const SizedBox(height: 16),
-                    UploadFormHelpers.buildModernMultiSelectDropdownField(
-                      'Genres',
-                      genres,
-                      context,
-                      theme,
-                    ),
-                  ],
-                  theme,
-                ),
-        ],
-      ),
-    );
-  }
-
-  Widget _seriesPageOne(ThemeData theme, VideoProvider provider) {
     return SingleChildScrollView(
       padding: _pagePadding,
       child: Column(
@@ -250,74 +253,19 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
                 groupedItems: provider.groupedLanguageOptions,
               ),
               const SizedBox(height: 16),
-              _isApproved
-                  ? SizedBox.shrink()
-                  : CustomTextField(
-                      controller: provider.titleController,
-                      hintText: "Enter series title",
-                      label: "Title",
-                      textInputType: TextInputType.text,
-                    ),
-              _isApproved
-                  ? SizedBox.shrink()
-                  : CustomTextField(
-                      controller: provider.descriptionController,
-                      hintText: "Enter description",
-                      label: "Description",
-                      textInputType: TextInputType.text,
-                    ),
-            ],
-            theme,
-          ),
-          const SizedBox(height: 8),
-          _isApproved
-              ? SizedBox.shrink()
-              : UploadFormHelpers.buildSectionCard(
-                  "Cast And Crew",
-                  [
-                    _castImageSection(theme, provider),
-                    const SizedBox(height: 8),
-                    _crewListSection(theme, provider),
-                  ],
-                  theme,
-                ),
-          const SizedBox(height: 8),
-          _isApproved
-              ? SizedBox.shrink()
-              : UploadFormHelpers.buildSectionCard(
-                  "Classification",
-                  [
-                    UploadFormHelpers.buildModernDropdownField(
-                      'Age Rating',
-                      ageRatings,
-                      context,
-                      provider,
-                      theme,
-                    ),
-                    const SizedBox(height: 16),
-                    UploadFormHelpers.buildModernMultiSelectDropdownField(
-                      'Genres',
-                      genres,
-                      context,
-                      theme,
-                    ),
-                  ],
-                  theme,
-                ),
-        ],
-      ),
-    );
-  }
-
-  Widget _commonPricingPage(
-      ThemeData theme, VideoProvider provider, int isMovie) {
-    return SingleChildScrollView(
-      padding: _pagePadding,
-      child: Column(
-        children: [
-          UploadFormHelpers.buildSectionCard(
-            "Release & Pricing",
-            [
+              CustomTextField(
+                controller: provider.titleController,
+                hintText: "Enter movie title",
+                label: "Title",
+                showRequiredAsterisk: true,
+                textInputType: TextInputType.text,
+              ),
+              CustomTextField(
+                controller: provider.descriptionController,
+                hintText: "Enter description",
+                label: "Description",
+                textInputType: TextInputType.text,
+              ),
               UploadFormHelpers.buildModernDateField(
                 context,
                 provider,
@@ -326,9 +274,42 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
               ),
               const SizedBox(height: 16),
               CustomTextField(
+                controller: provider.runTimeController,
+                hintText: "Enter runtime in minutes",
+                label: "Runtime (min)",
+                textInputType: TextInputType.number,
+              ),
+            ],
+            theme,
+          ),
+          const SizedBox(height: 8),
+          UploadFormHelpers.buildSectionCard(
+            "Cast And Crew",
+            [
+              _castImageSection(theme, provider),
+              const SizedBox(height: 8),
+              _crewListSection(theme, provider),
+            ],
+            theme,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _moviePageTwo(ThemeData theme, VideoProvider provider) {
+    return SingleChildScrollView(
+      padding: _pagePadding,
+      child: Column(
+        children: [
+          UploadFormHelpers.buildSectionCard(
+            "Pricing & Media House",
+            [
+              CustomTextField(
                 controller: provider.priceController,
-                hintText: "Enter price",
-                label: "Price",
+                hintText: "Enter price in INR",
+                label: "Price (INR)",
+                showRequiredAsterisk: true,
                 textInputType: TextInputType.number,
               ),
               UploadFormHelpers.buildModernDropdownField(
@@ -339,14 +320,40 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
                 theme,
               ),
               const SizedBox(height: 16),
-              isMovie == 1
-                  ? CustomTextField(
-                      controller: provider.numberOfAttemptController,
-                      hintText: "No Of Attempts",
-                      label: "No Of Attempts",
-                      textInputType: TextInputType.number,
-                    )
-                  : SizedBox.shrink()
+              CustomTextField(
+                controller: provider.numberOfAttemptController,
+                hintText: "No Of Attempts",
+                label: "No Of Attempts",
+                textInputType: TextInputType.number,
+              ),
+            ],
+            theme,
+          ),
+          const SizedBox(height: 8),
+          UploadFormHelpers.buildSectionCard(
+            "Content Formats & Configuration",
+            [
+              UploadFormHelpers.buildModernDropdownField(
+                'Age Rating',
+                ageRatings,
+                context,
+                provider,
+                theme,
+              ),
+              const SizedBox(height: 16),
+              UploadFormHelpers.buildModernMultiSelectDropdownField(
+                'Genres',
+                genres,
+                context,
+                theme,
+              ),
+              const SizedBox(height: 16),
+              UploadFormHelpers.buildModernMultiSelectDropdownField(
+                'Audio Formats',
+                audioFormats,
+                context,
+                theme,
+              ),
             ],
             theme,
           ),
@@ -356,39 +363,42 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
   }
 
   Widget _moviePageThree(ThemeData theme, VideoProvider provider) {
+    final selectedLanguages = provider.audioLanguages;
     return SingleChildScrollView(
       padding: _pagePadding,
       child: Column(
         children: [
           UploadFormHelpers.buildSectionCard(
-            "Upload Files",
+            "Common Upload Files",
             [
-              _isApproved
-                  ? SizedBox.shrink()
-                  : UploadMediaHelpers.buildEnhancedUploadSection(
-                      "Censor Certificate", theme, context),
-              const SizedBox(height: 16),
               UploadMediaHelpers.buildEnhancedUploadSection(
-                  "Poster 1", theme, context),
-              const SizedBox(height: 16),
-              UploadMediaHelpers.buildEnhancedUploadSection(
-                  "Poster 2", theme, context),
-              const SizedBox(height: 16),
-              UploadMediaHelpers.buildEnhancedUploadSection(
-                  "Poster 3", theme, context),
-              const SizedBox(height: 16),
-              UploadMediaHelpers.buildEnhancedUploadSection(
-                  "Teaser File", theme, context),
-              const SizedBox(height: 16),
-              UploadMediaHelpers.buildEnhancedUploadSection(
-                  "Trailer File", theme, context),
-              const SizedBox(height: 16),
-              UploadMediaHelpers.buildEnhancedUploadSection(
-                  "Movie File", theme, context),
-              const SizedBox(height: 16),
+                  "Censor Certificate", theme, context),
             ],
             theme,
           ),
+          const SizedBox(height: 12),
+          if (selectedLanguages.isEmpty)
+            UploadFormHelpers.buildSectionCard(
+              "Language Variants",
+              [
+                Text(
+                  "Select at least one language in step 1 to create upload sections.",
+                  style: TextStyle(color: theme.canvasColor),
+                ),
+              ],
+              theme,
+            )
+          else
+            ...selectedLanguages.map(
+              (language) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _movieLanguageVariantSection(
+                  theme,
+                  provider,
+                  language,
+                ),
+              ),
+            ),
           const SizedBox(height: 8),
           _audioSubtitleAndSettings(theme, provider),
         ],
@@ -396,43 +406,367 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
     );
   }
 
-  Widget _seriesPageThree(ThemeData theme, VideoProvider provider) {
-    return SingleChildScrollView(
-      padding: _pagePadding,
-      child: Column(
-        children: [
-          UploadFormHelpers.buildSectionCard(
-            "Upload Files",
-            [
-              _isApproved
-                  ? SizedBox.shrink()
-                  : UploadMediaHelpers.buildEnhancedUploadSection(
-                      "Censor Certificate", theme, context),
-              const SizedBox(height: 16),
-              UploadMediaHelpers.buildEnhancedUploadSection(
-                  "Poster 1", theme, context),
-              const SizedBox(height: 16),
-              UploadMediaHelpers.buildEnhancedUploadSection(
-                  "Poster 2", theme, context),
-              const SizedBox(height: 16),
-              UploadMediaHelpers.buildEnhancedUploadSection(
-                  "Poster 3", theme, context),
-              const SizedBox(height: 16),
-              UploadMediaHelpers.buildEnhancedUploadSection(
-                  "Teaser File", theme, context),
-              const SizedBox(height: 16),
-              _isApproved
-                  ? SizedBox.shrink()
-                  : UploadMediaHelpers.buildEnhancedUploadSection(
-                      "Trailer File", theme, context),
-            ],
+  Widget _movieLanguageVariantSection(
+    ThemeData theme,
+    VideoProvider provider,
+    String language,
+  ) {
+    return UploadFormHelpers.buildSectionCard(
+      "$language Uploads",
+      [
+        _variantUploadTile(theme, provider, language, 'poster1', 'Poster 1'),
+        const SizedBox(height: 12),
+        _variantUploadTile(theme, provider, language, 'poster2', 'Poster 2'),
+        const SizedBox(height: 12),
+        _variantUploadTile(theme, provider, language, 'poster3', 'Poster 3'),
+        const SizedBox(height: 12),
+        _variantUploadTile(
+          theme,
+          provider,
+          language,
+          'teaser',
+          'Teaser File',
+          isVideo: true,
+        ),
+        const SizedBox(height: 12),
+        _variantUploadTile(
+          theme,
+          provider,
+          language,
+          'trailer',
+          'Trailer File',
+          isVideo: true,
+        ),
+        if (_isMovie) ...[
+          const SizedBox(height: 12),
+          _variantUploadTile(
             theme,
+            provider,
+            language,
+            'movie',
+            'Movie File',
+            isVideo: true,
           ),
-          const SizedBox(height: 8),
-          _audioSubtitleAndSettings(theme, provider),
+          const SizedBox(height: 12),
+          UploadMediaHelpers.buildAudioUploadSection(
+            "$language Audio",
+            theme,
+            context,
+          ),
+          const SizedBox(height: 12),
+          _variantUploadTile(
+            theme,
+            provider,
+            language,
+            'subtitle',
+            'Subtitle File',
+          ),
         ],
-      ),
+      ],
+      theme,
     );
+  }
+
+  Widget _variantUploadTile(
+    ThemeData theme,
+    VideoProvider provider,
+    String language,
+    String field,
+    String label, {
+    bool isVideo = false,
+  }) {
+    final controller = provider.movieVariantController(language, field);
+    final imageUrl = controller.text.trim();
+    final uploaded = imageUrl.isNotEmpty;
+    final isUploading = provider.isMovieVariantUploading(language, field);
+    final progress = provider.movieVariantUploadProgress(language, field);
+    final isPosterImage = field.startsWith('poster');
+    final double containerHeight =
+        (uploaded && isPosterImage) ? 120.0 : 80.0;
+
+    final borderColor = uploaded
+        ? Colors.green.withValues(alpha: 0.3)
+        : theme.primaryColor.withValues(alpha: 0.3);
+    final containerColor = uploaded
+        ? Colors.green.withValues(alpha: 0.1)
+        : theme.primaryColor.withValues(alpha: 0.1);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: theme.canvasColor,
+          ),
+        ),
+        if (isPosterImage) ...[
+          const SizedBox(height: 4),
+          Text(
+            ImageValidationService.guidelineFor(ImageValidationType.poster),
+            style: TextStyle(
+              fontSize: 12,
+              color: theme.canvasColor.withValues(alpha: 0.65),
+            ),
+          ),
+        ],
+        const SizedBox(height: 8),
+        InkWell(
+          onTap: isUploading
+              ? null
+              : (uploaded
+                  ? null
+                  : () => provider.pickMovieVariantFile(
+                        context,
+                        language,
+                        field,
+                        isVideo: isVideo,
+                      )),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: double.infinity,
+            height: containerHeight,
+            decoration: BoxDecoration(
+              color: containerColor,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: borderColor, width: 2),
+            ),
+            child: Stack(
+              children: [
+                if (isUploading)
+                  Positioned.fill(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: LinearProgressIndicator(
+                        value: progress.clamp(0.0, 1.0),
+                        backgroundColor: Colors.transparent,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Colors.green.withValues(alpha: 0.35),
+                        ),
+                        minHeight: containerHeight,
+                      ),
+                    ),
+                  ),
+
+                if (uploaded && isPosterImage)
+                  UploadMediaHelpers.buildImagePreview(
+                      imageUrl, label, theme, context)
+                else
+                  Center(
+                    child: isUploading
+                        ? Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(
+                                height: 26,
+                                width: 26,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 3,
+                                  value: progress.clamp(0.0, 1.0),
+                                  color: theme.primaryColor,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                "Uploading... ${(progress * 100).toInt()}%",
+                                style: TextStyle(
+                                  color: theme.primaryColor,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          )
+                        : Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                uploaded
+                                    ? Icons.check_circle_outline
+                                    : Icons.cloud_upload_outlined,
+                                color: uploaded
+                                    ? Colors.green
+                                    : theme.primaryColor,
+                                size: 24,
+                              ),
+                              const SizedBox(width: 12),
+                              Flexible(
+                                child: Text(
+                                  uploaded ? "$label Uploaded" : "Upload $label",
+                                  style: TextStyle(
+                                    color: uploaded
+                                        ? Colors.green
+                                        : theme.primaryColor,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                              if (uploaded) ...[
+                                const SizedBox(width: 8),
+                                if (imageUrl.isNotEmpty) ...[
+                                  InkWell(
+                                    onTap: () {
+                                      if (isVideo) {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => TrailerPage(
+                                                trailerUrl: imageUrl),
+                                          ),
+                                        );
+                                      } else {
+                                        UploadMediaHelpers.showImagePreview(
+                                          context,
+                                          imageUrl,
+                                          label,
+                                          theme,
+                                        );
+                                      }
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 5),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            isVideo
+                                                ? Icons.play_arrow
+                                                : Icons.visibility,
+                                            color: Colors.white,
+                                            size: 14,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            isVideo ? "Play" : "View",
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                ],
+                                InkWell(
+                                  onTap: () => provider.pickMovieVariantFile(
+                                    context,
+                                    language,
+                                    field,
+                                    isVideo: isVideo,
+                                  ),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: theme.primaryColor,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Text(
+                                      "Replace",
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                InkWell(
+                                  onTap: () {
+                                    provider.clearMovieVariant(language, field);
+                                    CustomToast.show(
+                                      context,
+                                      "$label removed",
+                                      isSuccess: true,
+                                    );
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Text(
+                                      "Delete",
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        if (field == 'teaser' &&
+            provider.activeTeaserProgressInfo != null &&
+            provider.activeTeaserProgressInfo!.state !=
+                MultipartUploadState.idle) ...[
+          const SizedBox(height: 12),
+          MultipartUploadProgressWidget(
+            info: provider.activeTeaserProgressInfo!,
+            onPause: () => provider.pauseTeaserMultipartUpload(),
+            onResume: () => provider.resumeTeaserMultipartUpload(),
+            onRetry: () => provider.retryTeaserMultipartUpload(),
+            onAbort: () => provider.abortTeaserMultipartUpload(),
+          ),
+        ],
+        if (field == 'trailer' &&
+            provider.activeTrailerProgressInfo != null &&
+            provider.activeTrailerProgressInfo!.state !=
+                MultipartUploadState.idle) ...[
+          const SizedBox(height: 12),
+          MultipartUploadProgressWidget(
+            info: provider.activeTrailerProgressInfo!,
+            onPause: () => provider.pauseTrailerMultipartUpload(),
+            onResume: () => provider.resumeTrailerMultipartUpload(),
+            onRetry: () => provider.retryTrailerMultipartUpload(),
+            onAbort: () => provider.abortTrailerMultipartUpload(),
+          ),
+        ],
+        if ((field == 'movie' || field == 'video') &&
+            provider.activePrimaryProgressInfo != null &&
+            provider.activePrimaryProgressInfo!.state !=
+                MultipartUploadState.idle) ...[
+          const SizedBox(height: 12),
+          MultipartUploadProgressWidget(
+            info: provider.activePrimaryProgressInfo!,
+            onPause: () => provider.pausePrimaryMultipartUpload(),
+            onResume: () => provider.resumePrimaryMultipartUpload(),
+            onRetry: () => provider.retryPrimaryMultipartUpload(),
+            onAbort: () => provider.abortPrimaryMultipartUpload(),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _seriesPageOne(ThemeData theme, VideoProvider provider) {
+    return _moviePageOne(theme, provider);
+  }
+
+  Widget _seriesPageThree(ThemeData theme, VideoProvider provider) {
+    return _moviePageThree(theme, provider);
   }
 
   Widget _castImageSection(ThemeData theme, VideoProvider provider) {
@@ -445,12 +779,6 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
           label: "Cast Name",
           textInputType: TextInputType.text,
           showRequiredAsterisk: true,
-        ),
-        CustomTextField(
-          controller: provider.castRoleController,
-          hintText: "Enter cast role",
-          label: "Cast Role",
-          textInputType: TextInputType.text,
         ),
         UploadMediaHelpers.buildEnhancedUploadSection(
           "Cast Image",
@@ -503,6 +831,8 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
           const SizedBox(height: 8),
           ...List.generate(provider.pendingCasts.length, (index) {
             final cast = provider.pendingCasts[index];
+            final imageUrl = (cast["image"] ?? "").trim();
+            final roleText = (cast["role"] ?? "").trim();
             return Container(
               width: double.infinity,
               margin: const EdgeInsets.only(bottom: 8),
@@ -514,13 +844,45 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
               ),
               child: Row(
                 children: [
-                  Expanded(
-                    child: Text(
-                      "${cast["name"] ?? ""} (${cast["role"] ?? ""})",
-                      style: TextStyle(
-                        color: theme.canvasColor,
-                        fontWeight: FontWeight.w600,
+                  if (imageUrl.isNotEmpty)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Image.network(
+                        imageUrl,
+                        width: 40,
+                        height: 40,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => CircleAvatar(
+                          radius: 20,
+                          backgroundColor:
+                              theme.primaryColor.withValues(alpha: 0.15),
+                          child: Icon(Icons.person,
+                              color: theme.primaryColor, size: 22),
+                        ),
                       ),
+                    )
+                  else
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor:
+                          theme.primaryColor.withValues(alpha: 0.15),
+                      child: Icon(Icons.person,
+                          color: theme.primaryColor, size: 22),
+                    ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          cast["name"] ?? "",
+                          style: TextStyle(
+                            color: theme.canvasColor,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   IconButton(
@@ -607,6 +969,8 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
           const SizedBox(height: 8),
           ...List.generate(provider.pendingCrews.length, (index) {
             final crew = provider.pendingCrews[index];
+            final imageUrl = (crew["image"] ?? "").trim();
+            final roleText = (crew["role"] ?? "").trim();
             return Container(
               width: double.infinity,
               margin: const EdgeInsets.only(bottom: 8),
@@ -618,13 +982,55 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
               ),
               child: Row(
                 children: [
-                  Expanded(
-                    child: Text(
-                      "${crew["name"] ?? ""} (${crew["role"] ?? ""})",
-                      style: TextStyle(
-                        color: theme.canvasColor,
-                        fontWeight: FontWeight.w600,
+                  if (imageUrl.isNotEmpty)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Image.network(
+                        imageUrl,
+                        width: 40,
+                        height: 40,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => CircleAvatar(
+                          radius: 20,
+                          backgroundColor:
+                              theme.primaryColor.withValues(alpha: 0.15),
+                          child: Icon(Icons.person,
+                              color: theme.primaryColor, size: 22),
+                        ),
                       ),
+                    )
+                  else
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor:
+                          theme.primaryColor.withValues(alpha: 0.15),
+                      child: Icon(Icons.person,
+                          color: theme.primaryColor, size: 22),
+                    ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          crew["name"] ?? "",
+                          style: TextStyle(
+                            color: theme.canvasColor,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        if (roleText.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            roleText,
+                            style: TextStyle(
+                              color: theme.canvasColor.withValues(alpha: 0.65),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                   IconButton(
@@ -645,28 +1051,6 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
   Widget _audioSubtitleAndSettings(ThemeData theme, VideoProvider provider) {
     return Column(
       children: [
-        UploadFormHelpers.buildSectionCard(
-          "Audio & Subtitles",
-          [
-            UploadFormHelpers.buildModernMultiSelectDropdownField(
-              'Audio Formats',
-              audioFormats,
-              context,
-              theme,
-            ),
-            const SizedBox(height: 16),
-            UploadFormHelpers.buildModernMultiSelectDropdownField(
-              'Subtitle Languages',
-              provider.languageOptions,
-              context,
-              theme,
-            ),
-            const SizedBox(height: 20),
-            UploadMediaHelpers.buildDynamicLanguageAudioSection(context, theme),
-          ],
-          theme,
-        ),
-        const SizedBox(height: 8),
         UploadFormHelpers.buildSectionCard(
           "Content Settings",
           [
@@ -702,26 +1086,20 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
 
   Widget _buildHeader(ThemeData themeData) {
     final List<String> stepTitles = _isMovie
-        ? (_isApproved
-            ? const [
-                "Release, Price & Rental",
-                "Upload Files & Settings",
-              ]
-            : const [
-                "Language, Details & Cast",
-                "Release, Price & Rental",
-                "Upload Files & Settings"
-              ])
-        : (_isApproved
-            ? const [
-                "Release, Price & Rental",
-                "Upload & Episodes",
-              ]
-            : const [
-                "Language, Details & Cast",
-                "Release, Price & Rental",
-                "Upload & Episodes"
-              ]);
+        ? const [
+            "Language, Details & Cast",
+            "Release, Price & Rental",
+            "Upload Files & Settings"
+          ]
+        : const [
+            "Language, Details & Cast",
+            "Release, Price & Rental",
+            "Upload & Episodes"
+          ];
+
+    final currentTitle = (_currentPage >= 0 && _currentPage < stepTitles.length)
+        ? stepTitles[_currentPage]
+        : (stepTitles.isNotEmpty ? stepTitles.last : '');
 
     return Stack(
       children: [
@@ -736,7 +1114,9 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
             children: [
               const SizedBox(height: 12),
               Text(
-                _isMovie ? "Edit Movie" : "Edit Series",
+                ContentTypeValue.isShortFilm(widget.movie.type)
+                    ? "Edit Short Film"
+                    : (_isMovie ? "Edit Movie" : "Edit Series"),
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -745,7 +1125,7 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
               ),
               const SizedBox(height: 16),
               Text(
-                stepTitles[_currentPage],
+                currentTitle,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: _isMobile ? 16 : 20,
@@ -864,15 +1244,23 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
                 ),
               ),
               child: _isSubmitting && _currentPage == _lastPageIndex
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
+                  ? const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        Text("Saving changes..."),
+                      ],
                     )
-                  : Text(_currentPage == _lastPageIndex ? "Submit" : "Next"),
+                  : Text(
+                      _currentPage == _lastPageIndex ? "Save Changes" : "Next"),
             ),
           ),
         ],
@@ -881,19 +1269,6 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
   }
 
   void _handleButtonPress(VideoProvider provider, ThemeData themeData) {
-    if (_isApproved) {
-      if (_currentPage == 0) {
-        if (!_validatePageTwo(provider)) return;
-        _syncFeaturedFlag(provider);
-        _nextPage();
-        return;
-      }
-
-      if (!_validatePageThree(provider)) return;
-      _handleAdd(provider, themeData, widget.movie.id!);
-      return;
-    }
-
     if (_currentPage == 0) {
       if (!_validatePageOne(provider)) return;
       _nextPage();
@@ -912,72 +1287,23 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
   }
 
   bool _validatePageOne(VideoProvider provider) {
-    /*  if (provider.selectedLanguages.isEmpty) {
-      CustomToast.show("Please select at least one language", isSuccess: false);
-      return false;
-    }
     if (provider.titleController.text.trim().isEmpty) {
-      CustomToast.show("Please enter title", isSuccess: false);
+      CustomToast.show(context, "Please enter movie title", isSuccess: false);
       return false;
     }
-    if (provider.descriptionController.text.trim().isEmpty) {
-      CustomToast.show("Please enter description", isSuccess: false);
-      return false;
-    }
-    if (provider.runTimeController.text.trim().isEmpty) {
-      CustomToast.show(
-        _isMovie ? "Please enter runtime" : "Please enter number of episodes",
-        isSuccess: false,
-      );
-      return false;
-    } */
     return true;
   }
 
   bool _validatePageTwo(VideoProvider provider) {
-    /*  if (releaseDate.isEmpty) {
-      CustomToast.show("Please select release date", isSuccess: false);
+    final priceText = provider.priceController.text.trim();
+    if (priceText.isEmpty || (double.tryParse(priceText) ?? -1) < 0) {
+      CustomToast.show(context, "Please enter a valid price", isSuccess: false);
       return false;
     }
-    if (price == null || price <= 0) {
-      CustomToast.show("Please enter valid price", isSuccess: false);
-      return false;
-    }
-    if (rentalDuration.isEmpty) {
-      CustomToast.show("Please select rental duration", isSuccess: false);
-      return false;
-    } */
     return true;
   }
 
   bool _validatePageThree(VideoProvider provider) {
-    /*  if (!provider.isRegistrationFeePaid) {
-      CustomToast.show(
-        "Registration fee is not paid (N). Upload is blocked.",
-        isSuccess: false,
-      );
-      return false;
-    }
-
-    if (provider.registrationPaymentIdController.text.trim().isEmpty ||
-        provider.registrationPaymentDateController.text.trim().isEmpty ||
-        provider.registrationAmountPaidController.text.trim().isEmpty ||
-        provider.registrationPlanTypeController.text.trim().isEmpty ||
-        provider.registrationValidityController.text.trim().isEmpty ||
-        provider.registrationPaymentMethodController.text.trim().isEmpty) {
-      CustomToast.show(
-        "Please fill all registration fee detail fields.",
-        isSuccess: false,
-      );
-      return false;
-    } */
-
-    final trailerUrl = provider.trailerUrlController.text.trim();
-    if (trailerUrl.isEmpty) {
-      CustomToast.show(context, "Please upload trailer file", isSuccess: false);
-      return false;
-    }
-
     if (_isMovie) {
       final movieUrl = provider.movieUrlController.text.trim();
       if (movieUrl.isEmpty) {
@@ -985,31 +1311,21 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
         return false;
       }
     }
-
-    /*  if (provider.hasIncompleteCastDraft) {
-      CustomToast.show(
-        "Please complete cast draft or clear it before submit.",
-        isSuccess: false,
-      );
-      return false;
-    } */
     return true;
   }
 
   void _syncFeaturedFlag(VideoProvider provider) {
     try {
       final releaseDate = provider.releaseDateController.text.trim();
-      final targetDate = DateTime.parse(releaseDate);
-      provider.toggleFeatured(targetDate.isAfter(DateTime.now()));
-    } catch (_) {
-      CustomToast.show(
-          context, "Invalid release date format. Please correct it.",
-          isSuccess: false);
-    }
+      if (releaseDate.isNotEmpty) {
+        final targetDate = DateTime.parse(releaseDate);
+        provider.toggleFeatured(targetDate.isAfter(DateTime.now()));
+      }
+    } catch (_) {}
   }
 
   Future<void> _handleAdd(
-      VideoProvider provider, ThemeData selectedThemeDat, int movieId) async {
+      VideoProvider provider, ThemeData selectedThemeData, int movieId) async {
     setState(() => _isSubmitting = true);
     try {
       Content? content = await provider.editContent(context, movieId);
@@ -1028,12 +1344,24 @@ class _EditVideoMovieState extends State<EditVideoMovie> {
           if (!mounted) return;
           if (!crewSaved) return;
         }
-        Navigator.of(context).pop();
-        Navigator.of(context).pop();
+        CustomToast.show(
+          context,
+          "${ContentTypeValue.displayLabel(widget.movie.type)} updated successfully.",
+          isSuccess: true,
+        );
+        Navigator.of(context).pop(true);
       } else {
         CustomToast.show(
           context,
-          "Failed to update content.",
+          "Failed to update movie.",
+          isSuccess: false,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        CustomToast.show(
+          context,
+          "Error saving changes: $e",
           isSuccess: false,
         );
       }

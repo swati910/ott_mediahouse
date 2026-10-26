@@ -77,21 +77,29 @@ class ReportAndDataObject {
       ReportAndDataObject(
         releasedDate: json["releasedDate"] == null
             ? null
-            : DateTime.parse(json["releasedDate"]),
-        price: json["price"]?.toDouble(),
-        revenue: json["revenue"],
-        netRevenue: json["netRevenue"],
+            : DateTime.tryParse(json["releasedDate"].toString()),
+        price: _toDouble(json["price"]),
+        revenue: _toDouble(json["revenue"]),
+        netRevenue: _toDouble(json["netRevenue"]),
         movieName: json["movieName"],
-        views: json["views"],
+        views: json["views"] is int
+            ? json["views"]
+            : int.tryParse(json["views"]?.toString() ?? ''),
       );
 
   Map<String, dynamic> toJson() => {
         "releasedDate":
-            "${releasedDate!.year.toString().padLeft(4, '0')}-${releasedDate!.month.toString().padLeft(2, '0')}-${releasedDate!.day.toString().padLeft(2, '0')}",
+            releasedDate == null ? null : "${releasedDate!.year.toString().padLeft(4, '0')}-${releasedDate!.month.toString().padLeft(2, '0')}-${releasedDate!.day.toString().padLeft(2, '0')}",
         "percentageMediaHouse": price,
         "revenue": revenue,
         "netRevenue": netRevenue,
         "movieName": movieName,
         "views": views,
       };
+}
+
+double? _toDouble(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  return double.tryParse(value.toString());
 }

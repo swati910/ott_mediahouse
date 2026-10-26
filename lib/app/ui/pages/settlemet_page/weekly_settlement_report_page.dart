@@ -132,7 +132,7 @@ class _WeeklySettlementReportPageState
           )
         ]),
       if (report.summaryCards.isNotEmpty)
-        _entrySection(theme, 'Summary', report.summaryCards),
+        _summarySection(theme, report.summaryCards),
       ...report.sections.map((section) => _entrySection(
           theme,
           section.title.isEmpty ? 'Report section' : section.title,
@@ -150,6 +150,58 @@ class _WeeklySettlementReportPageState
             prominent: true),
     ];
   }
+
+  Widget _summarySection(ThemeData theme, List<ReportEntry> entries) =>
+      _panel(theme, [
+        Text('Summary',
+            style: TextStyle(
+                color: theme.primaryColor,
+                fontSize: 18,
+                fontWeight: FontWeight.w800)),
+        const SizedBox(height: 12),
+        LayoutBuilder(builder: (context, constraints) {
+          final columns = constraints.maxWidth >= 900
+              ? 3
+              : constraints.maxWidth >= 560
+                  ? 2
+                  : 1;
+          final width = (constraints.maxWidth - ((columns - 1) * 12)) / columns;
+          return Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: entries
+                  .expand(_displayFields)
+                  .map((field) => SizedBox(
+                        width: width,
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: theme.scaffoldBackgroundColor
+                                .withValues(alpha: .45),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                                color:
+                                    theme.dividerColor.withValues(alpha: .22)),
+                          ),
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(_label(field.key),
+                                    style: TextStyle(
+                                        color: theme.canvasColor
+                                            .withValues(alpha: .7))),
+                                const SizedBox(height: 8),
+                                Text(_formatValue(field.key, field.value),
+                                    style: TextStyle(
+                                        color: theme.canvasColor,
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w800)),
+                              ]),
+                        ),
+                      ))
+                  .toList(growable: false));
+        }),
+      ]);
 
   Widget _entrySection(ThemeData theme, String title, List<ReportEntry> entries,
           {bool prominent = false}) =>
@@ -169,11 +221,42 @@ class _WeeklySettlementReportPageState
     if (entry.label.isNotEmpty && entry.value != null) {
       return [MapEntry(entry.label, entry.value)];
     }
-    return entry.fields.entries
-        .where((field) =>
-            field.value != null && field.value is! Map && field.value is! List)
-        .toList(growable: false);
+    return _flattenFields(entry.fields);
   }
+
+  List<MapEntry<String, dynamic>> _flattenFields(Map<String, dynamic> fields,
+      [String? parent]) {
+    final result = <MapEntry<String, dynamic>>[];
+    for (final field in fields.entries) {
+      final key = parent == null ? field.key : '$parent ${field.key}';
+      if (field.value is Map) {
+        result.addAll(
+            _flattenFields(Map<String, dynamic>.from(field.value as Map), key));
+      } else if (field.value is List) {
+        final values = field.value as List;
+        if (values.every((item) => item is! Map && item is! List)) {
+          result.add(MapEntry(key, values.join(', ')));
+        }
+      } else if (field.value != null &&
+          !_metadataKeys.contains(field.key.toLowerCase())) {
+        result.add(MapEntry(key, field.value));
+      }
+    }
+    return result;
+  }
+
+  static const _metadataKeys = {
+    'label',
+    'title',
+    'name',
+    'key',
+    'description',
+    'displayname',
+    'metric',
+    'type',
+    'valuetype',
+    'currency'
+  };
 
   List<ReportEntry> _mapEntries(Map<String, dynamic> map) => map.entries
       .map((entry) => ReportEntry({'label': entry.key, 'value': entry.value}))

@@ -46,12 +46,26 @@ class UploadFormHelpers {
       BuildContext context,
       VideoProvider provider,
       ThemeData themeData,
-      Function(DateTime) onDateSelected) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: themeData.dividerColor),
-      ),
+      Function(DateTime) onDateSelected,
+      {String label = "Release Date"}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: themeData.canvasColor,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: themeData.dividerColor),
+          ),
       child: TextFormField(
         cursorColor: themeData.primaryColor,
         controller: provider.releaseDateController,
@@ -103,8 +117,10 @@ class UploadFormHelpers {
           ),
         ),
       ),
-    );
-  }
+    ),
+  ],
+);
+}
 
   static Widget buildModernDropdownField(
     String label,
@@ -131,6 +147,27 @@ class UploadFormHelpers {
             border: Border.all(color: themeData.dividerColor),
           ),
           child: DropdownButtonFormField<String>(
+            value: () {
+              String? val;
+              if (label == "Age Rating") {
+                val = provider.ageRatingController.text.trim();
+              } else if (label == "Type") {
+                val = provider.typeController.text.trim();
+              } else if (label == "Rental Duration") {
+                val = provider.rentalDurationController.text.trim();
+              }
+              if (val != null && val.isEmpty) val = null;
+              if (val != null && !items.contains(val)) {
+                final match = items.firstWhere(
+                  (item) =>
+                      item.toLowerCase().contains(val!.toLowerCase()) ||
+                      val.toLowerCase().contains(item.toLowerCase()),
+                  orElse: () => '',
+                );
+                val = match.isNotEmpty ? match : null;
+              }
+              return val;
+            }(),
             hint: Text(
               "Select $label",
               style: TextStyle(

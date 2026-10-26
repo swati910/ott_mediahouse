@@ -161,7 +161,7 @@ class UserProvider extends ChangeNotifier {
       debugPrint("Error: $error");
       return {
         'success': false,
-        'message': 'An error occurred while update user: $error'
+        'message': 'Unable to update the user. Please try again.'
       };
     }
   }
@@ -288,7 +288,7 @@ class UserProvider extends ChangeNotifier {
       }
     } catch (error) {
       debugPrint("Error: $error");
-      return {'success': false, 'message': 'An error occurred while logging user: $error'};
+      return {'success': false, 'message': 'Unable to sign in. Please try again.'};
     }
   }*/
 
@@ -391,7 +391,7 @@ class UserProvider extends ChangeNotifier {
       debugPrint("Error: $error");
       return {
         'success': false,
-        'message': 'An error occurred while logging user: $error'
+        'message': 'Unable to sign in. Please try again.'
       };
     }
   }
@@ -434,7 +434,7 @@ class UserProvider extends ChangeNotifier {
       debugPrint('Login Failed: $error');
       return {
         'success': false,
-        'message': 'Network error while requesting OTP: $error'
+        'message': 'Unable to request an OTP. Please check your connection and try again.'
       };
     }
   }
@@ -530,7 +530,7 @@ class UserProvider extends ChangeNotifier {
       debugPrint("Login Failed: $error");
       return {
         'success': false,
-        'message': 'An error occurred while logging user: $error'
+        'message': 'Unable to verify the OTP. Please try again.'
       };
     }
   }

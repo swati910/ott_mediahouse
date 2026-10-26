@@ -8,16 +8,14 @@ import '../../data/models/request/raiseTicketRequest.dart';
 import '../../data/models/response/getRaisedTicketListResponse.dart';
 import '../../data/models/response/image_upload_response.dart';
 import '../../data/models/response/raiseTicketResponse.dart';
+import '../../data/models/response/ticket_search_filter_response.dart';
 import '../../domain/entities/user.dart';
 import '../core/constant/api_constant.dart';
 import '../core/network/api_helper.dart';
 import '../core/utils/sharepreferences.dart';
 import 'dart:io' as io;
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:universal_html/html.dart' as html;
-
-//import 'dart:html' as html;
 
 class TicketProvider extends ChangeNotifier {
   List<TicketRaised> _ticketList = [];
@@ -27,6 +25,23 @@ class TicketProvider extends ChangeNotifier {
   TextEditingController feedbackController = TextEditingController();
   TextEditingController descController = TextEditingController();
   String imgUrl = '';
+
+  String _selectedPriority = 'HIGH';
+  String get selectedPriority => _selectedPriority;
+  void setPriority(String value) {
+    _selectedPriority = value;
+    notifyListeners();
+  }
+
+  String _selectedCategory = 'SETTLEMENT';
+  String get selectedCategory => _selectedCategory;
+  void setCategory(String value) {
+    _selectedCategory = value;
+    notifyListeners();
+  }
+
+  bool _isSearchingTickets = false;
+  bool get isSearchingTickets => _isSearchingTickets;
 
   Future<Map<String, Object>> raiseTicket() async {
     User? user = await LocalSharePreferences.localSharePreferences.getUser();
@@ -45,6 +60,9 @@ class TicketProvider extends ChangeNotifier {
     raiseTicketRequest.feedback = feedbackController.text;
     raiseTicketRequest.tickedId = 0;
     raiseTicketRequest.topic = topicController.text;
+    raiseTicketRequest.title = topicController.text;
+    raiseTicketRequest.priority = _selectedPriority;
+    raiseTicketRequest.category = _selectedCategory;
 
     ApiHelper apiHelper = ApiHelper();
 
@@ -61,8 +79,8 @@ class TicketProvider extends ChangeNotifier {
 
             imgUrl = '';
             _uploadedImageUrl = '';
-            topicController
-                .clear(); // Use `clear()` instead of assigning an empty string for text controllers
+            topicController.clear();
+            descController.clear();
             notifyListeners();
             return {
               'success': true,
@@ -85,13 +103,12 @@ class TicketProvider extends ChangeNotifier {
         }
       } else {
         return {'failure': true, 'message': 'Something went wrong!'};
-        // throw Exception('Failed to add user. Status code: ${response.statusCode}');
       }
     } catch (error) {
       debugPrint("Error: $error");
       return {
         'success': false,
-        'message': 'An error occurred while adding user: $error'
+        'message': 'Unable to create the support ticket. Please try again.'
       };
     }
   }
@@ -107,8 +124,8 @@ class TicketProvider extends ChangeNotifier {
     raiseTicketRequest.description = ticketRaised.description;
     raiseTicketRequest.isResolved = isResolved;
     raiseTicketRequest.mobileNumber =
-        ticketRaised.mobileNumber; //client or admin mobile number
-    raiseTicketRequest.email = ticketRaised.email; //client or admin email
+        ticketRaised.mobileNumber;
+    raiseTicketRequest.email = ticketRaised.email;
     raiseTicketRequest.image = ticketRaised.image;
     raiseTicketRequest.date = formattedDate;
     raiseTicketRequest.feedback = feedback;
@@ -129,8 +146,7 @@ class TicketProvider extends ChangeNotifier {
             getRaisedTicketByUserId();
             imgUrl = '';
             _uploadedImageUrl = '';
-            topicController
-                .clear(); // Use `clear()` instead of assigning an empty string for text controllers
+            topicController.clear();
             notifyListeners();
             return {
               'success': true,
@@ -153,13 +169,12 @@ class TicketProvider extends ChangeNotifier {
         }
       } else {
         return {'failure': true, 'message': 'Something went wrong!'};
-        // throw Exception('Failed to add user. Status code: ${response.statusCode}');
       }
     } catch (error) {
       debugPrint("Error: $error");
       return {
         'success': false,
-        'message': 'An error occurred while adding user: $error'
+        'message': 'Unable to update the support ticket. Please try again.'
       };
     }
   }
@@ -202,13 +217,12 @@ class TicketProvider extends ChangeNotifier {
         }
       } else {
         return {'failure': true, 'message': 'Something went wrong!'};
-        // throw Exception('Failed to add user. Status code: ${response.statusCode}');
       }
     } catch (error) {
       debugPrint("Error: $error");
       return {
         'success': false,
-        'message': 'An error occurred while adding user: $error'
+        'message': 'Unable to load support tickets. Please try again.'
       };
     }
   }
@@ -251,39 +265,75 @@ class TicketProvider extends ChangeNotifier {
         }
       } else {
         return {'failure': true, 'message': 'Something went wrong!'};
-        // throw Exception('Failed to add user. Status code: ${response.statusCode}');
       }
     } catch (error) {
       debugPrint("Error: $error");
       return {
         'success': false,
-        'message': 'An error occurred while adding user: $error'
+        'message': 'Unable to load support tickets. Please try again.'
       };
     }
   }
 
-  io.File? _imageFile; // For mobile platforms
-  html.File? _webFile; // For web platform
+  // ==========================================
+  // TICKET SEARCH AND FILTER (v2 API)
+  // ==========================================
+  Future<void> searchAndFilterTickets({
+    String? keyword,
+    String? status,
+    String? startDate,
+    String? endDate,
+  }) async {
+    _isSearchingTickets = true;
+    notifyListeners();
+
+    final apiUrl = ApiConstant.searchAndFilterTickets(
+      role: 'MEDIA_HOUSE',
+      keyword: keyword,
+      status: status,
+      startDate: startDate,
+      endDate: endDate,
+    );
+
+    final apiHelper = ApiHelper();
+    try {
+      final response = await apiHelper.getApi(apiUrl);
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final dynamic body = json.decode(response.body);
+        final filterResponse = TicketSearchFilterResponse.fromJson(body);
+        if (filterResponse.data.isNotEmpty || filterResponse.success == true) {
+          _ticketList.clear();
+          _ticketList.addAll(filterResponse.data);
+        } else {
+          _ticketList.clear();
+        }
+      } else {
+        await getRaisedTicketByUserId();
+      }
+    } catch (e) {
+      debugPrint("Error searching tickets: $e");
+      await getRaisedTicketByUserId();
+    } finally {
+      _isSearchingTickets = false;
+      notifyListeners();
+    }
+  }
+
+  io.File? _imageFile;
+  html.File? _webFile;
   String? _uploadedImageUrl;
   bool _isUploading = false;
 
   bool isLoading = false;
-
   var error;
 
-  // Getters
   io.File? get imageFile => _imageFile;
-
   html.File? get webFile => _webFile;
-
   String? get uploadedImageUrl => _uploadedImageUrl;
-
   bool get isUploading => _isUploading;
 
-  // Pick Image
   Future<void> pickImage() async {
     if (kIsWeb) {
-      // Web file picker
       final html.FileUploadInputElement uploadInput =
           html.FileUploadInputElement();
       uploadInput.accept = 'image/*';
@@ -297,7 +347,6 @@ class TicketProvider extends ChangeNotifier {
         }
       });
     } else {
-      // Mobile/desktop file picker
       final picker = ImagePicker();
       final pickedFile = await picker.pickImage(source: ImageSource.gallery);
       if (pickedFile != null) {
@@ -310,10 +359,9 @@ class TicketProvider extends ChangeNotifier {
     }
   }
 
-  // Upload Image
   Future<void> uploadImage() async {
     if ((!kIsWeb && _imageFile == null) || (kIsWeb && _webFile == null)) {
-      return; // No file selected
+      return;
     }
 
     final url = Uri.parse(ApiConstant.uploadImg);
@@ -322,7 +370,6 @@ class TicketProvider extends ChangeNotifier {
 
     try {
       if (kIsWeb && _webFile != null) {
-        // Web upload logic
         final request = http.MultipartRequest('POST', url);
         final reader = html.FileReader();
         reader.readAsArrayBuffer(_webFile!);
@@ -347,12 +394,10 @@ class TicketProvider extends ChangeNotifier {
           notifyListeners();
         }
       } else if (!kIsWeb && _imageFile != null) {
-        // Mobile/desktop upload logic
         final request = http.MultipartRequest('POST', url);
         request.files.add(await http.MultipartFile.fromPath(
           'profilePicture',
           _imageFile!.path,
-          //  contentType: MediaType('image', 'jpeg'),
         ));
         final response = await request.send();
 
@@ -373,7 +418,6 @@ class TicketProvider extends ChangeNotifier {
 
   deleteQuery(TicketRaised ticketList) async {
     String apiUrl = ApiConstant.deleteTicket(ticketList.tickedId!);
-
     ApiHelper apiHelper = ApiHelper();
 
     try {
@@ -388,7 +432,7 @@ class TicketProvider extends ChangeNotifier {
       debugPrint("Error: $error");
       return {
         'success': false,
-        'message': 'An error occurred while removing ticket: $error'
+        'message': 'Unable to delete the support ticket. Please try again.'
       };
     }
   }

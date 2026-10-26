@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:media_house/app/core/utils/currency_formatter.dart' as app_currency;
 import 'package:media_house/app/provider/settelementProvider.dart';
 import 'package:media_house/app/provider/themeProvider.dart';
 import 'package:media_house/data/models/response/media_house_settlement.dart';
@@ -28,13 +29,7 @@ class _SettlementCardState extends State<SettlementCard> {
     super.initState();
     if (widget.autoLoad) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        final provider = context.read<SettelementProvider>();
-        if (!provider.isLoading &&
-            provider.settlements.isEmpty &&
-            provider.errorMessage == null) {
-          provider.fetchForCurrentMediaHouse(page: 0, size: 10);
-        }
+        context.read<SettelementProvider>().fetchForCurrentMediaHouse();
       });
     }
   }
@@ -268,15 +263,11 @@ String formatPeriod(MediaHouseSettlement item) {
   return '${formatSettlementDate(item.periodStartDate)} - ${formatSettlementDate(item.periodEndDate)}';
 }
 
-String formatCurrency(num value) =>
-    NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 2)
-        .format(value);
+String formatCurrency(dynamic value) =>
+    app_currency.formatCurrency(value);
 
-String formatPercentage(num value) {
-  final formatted =
-      value.toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '');
-  return '$formatted%';
-}
+String formatPercentage(dynamic value) =>
+    app_currency.formatPercentage(value);
 
 void openSettlementReport(BuildContext context, MediaHouseSettlement item) {
   final reference = item.batchReference;
@@ -324,6 +315,14 @@ void showSettlementDetails(BuildContext context, MediaHouseSettlement item) {
     MapEntry('Other deductions', formatCurrency(item.otherDeductions)),
     MapEntry('Total deductions', formatCurrency(item.totalDeductions)),
     MapEntry('Final payable amount', formatCurrency(item.finalPayableAmount)),
+    if (item.walletCredited) ...[
+      const MapEntry('Wallet status', 'Credited to Wallet'),
+      MapEntry(
+          'Wallet transaction', item.walletTransactionReference ?? 'N/A'),
+      MapEntry('Credited amount', formatCurrency(item.walletCreditedAmount)),
+      MapEntry('Credited date',
+          formatSettlementDate(item.walletCreditedAt, includeTime: true)),
+    ],
   ];
   showDialog(
       context: context,

@@ -6,15 +6,18 @@ import 'package:flutter/foundation.dart';
 import 'package:media_house/data/models/response/getMediaHouseResponse.dart';
 import 'package:media_house/data/models/response/image_upload_response.dart';
 import 'package:media_house/data/models/response/mediaHouseDashboardCount.dart';
+import 'package:media_house/data/models/response/movie_transaction.dart';
 
 import '../../data/models/response/chartResponse.dart';
 import '../../domain/entities/mediaHouse.dart';
 import '../core/constant/api_constant.dart';
+import '../core/constant/prefrense_constant.dart';
 import '../core/network/api_helper.dart';
 import '../core/storage/portal_cache_service.dart';
 import '../core/storage/storage_keys.dart';
 import '../core/storage/storage_service.dart';
 import '../core/utils/sharepreferences.dart';
+import '../core/utils/user_message.dart';
 import '../widget/show_toast.dart';
 import 'dart:io' as io;
 import 'package:http/http.dart' as http;
@@ -52,6 +55,14 @@ class MediaHouseProvider extends ChangeNotifier {
   TextEditingController stateController = TextEditingController();
   TextEditingController districtController = TextEditingController();
   TextEditingController talukaController = TextEditingController();
+  TextEditingController firmTypeController = TextEditingController();
+  TextEditingController accountHolderNameController = TextEditingController();
+  TextEditingController bankNameController = TextEditingController();
+  TextEditingController bankAccountNumberController = TextEditingController();
+  TextEditingController bankIfscController = TextEditingController();
+  TextEditingController areaController = TextEditingController();
+  TextEditingController cityController = TextEditingController();
+  TextEditingController pincodeController = TextEditingController();
   bool isEnbale = false;
 
   MediaHouse _mediaHouse = MediaHouse();
@@ -62,6 +73,153 @@ class MediaHouseProvider extends ChangeNotifier {
   MediaHouseDashboardData _mediaHouseDashboardData = MediaHouseDashboardData();
   MediaHouseDashboardData get mediaHouseDashboardData =>
       _mediaHouseDashboardData;
+
+  List<MovieTransaction> _movieTransactions = [];
+  List<MovieTransaction> get movieTransactions => _movieTransactions;
+  bool _isLoadingMovieTransactions = false;
+  bool get isLoadingMovieTransactions => _isLoadingMovieTransactions;
+
+  bool _isLoadingMediaHouse = false;
+  bool get isLoadingMediaHouse => _isLoadingMediaHouse;
+
+  void _populateUploadedDocuments() {
+    uploadedDocuments.clear();
+    uploadedDocuments['Registration Certificate'] = {
+      'file': _mediaHouse.registrationCertificate == ""
+          ? null
+          : _mediaHouse.registrationCertificate,
+      'description':
+          'Proof of business entity (LLC, Pvt Ltd, Corporation).',
+      'fileName': '',
+      'fileSize': ''
+    };
+
+    uploadedDocuments['Aadhaar Card'] = {
+      'file': _mediaHouse.adharCard == "" ? null : _mediaHouse.adharCard,
+      'description':
+          'Government-issued identity proof for Indian citizens.',
+      'fileName': '',
+      'fileSize': ''
+    };
+
+    uploadedDocuments['Pan Card'] = {
+      'file': _mediaHouse.panCard == "" ? null : _mediaHouse.panCard,
+      'description':
+          'Permanent Account Number (PAN) card for tax identification.',
+      'fileName': '',
+      'fileSize': ''
+    };
+
+    uploadedDocuments['GST Certificate'] = {
+      'file': _mediaHouse.gstCertificates == ""
+          ? null
+          : _mediaHouse.gstCertificates,
+      'description':
+          'Government-issued certificate confirming business registration.',
+      'fileName': '',
+      'fileSize': ''
+    };
+
+    uploadedDocuments['Shop Act'] = {
+      'file': _mediaHouse.shopAct == "" ? null : _mediaHouse.shopAct,
+      'description':
+          'Legal license for business under the Shops & Establishments Act.',
+      'fileName': '',
+      'fileSize': ''
+    };
+
+    uploadedDocuments['Bank Proof'] = {
+      'file': _mediaHouse.bankProof == "" ? null : _mediaHouse.bankProof,
+      'description': 'Cancelled cheque or bank account proof document.',
+      'fileName': '',
+      'fileSize': ''
+    };
+
+    uploadedDocuments['Identity Proof'] = {
+      'file': _mediaHouse.identityProof == ""
+          ? null
+          : _mediaHouse.identityProof,
+      'description': 'Additional government-issued identity proof.',
+      'fileName': '',
+      'fileSize': ''
+    };
+
+    uploadedDocuments['Address Proof'] = {
+      'file': _mediaHouse.addressProof == ""
+          ? null
+          : _mediaHouse.addressProof,
+      'description': 'Proof of registered office address.',
+      'fileName': '',
+      'fileSize': ''
+    };
+  }
+
+  // Fetch Media House by ID (v2)
+  Future<void> fetchMediaHouseById(int mediaHouseId) async {
+    _isLoadingMediaHouse = true;
+    notifyListeners();
+    String apiUrl = ApiConstant.getMediaHouseById(mediaHouseId);
+    ApiHelper apiHelper = ApiHelper();
+    try {
+      var response = await apiHelper.getApi(apiUrl);
+      debugPrint("GetMediaHouseById response: ${response.body}");
+      if (response.statusCode == 200) {
+        Map<String, dynamic> responseBody = json.decode(response.body);
+        GetMediaHouse getMediaHouseResponse =
+            GetMediaHouse.fromJson(responseBody);
+        if (getMediaHouseResponse.data?.mediaHouse != null) {
+          _mediaHouse = getMediaHouseResponse.data!.mediaHouse!;
+          _populateUploadedDocuments();
+          setValue(_mediaHouse);
+          await LocalSharePreferences().setString(
+            SharedPreferencesConstant.currentMediaHouse,
+            jsonEncode(_mediaHouse.toJson()),
+          );
+        }
+      }
+    } catch (error) {
+      debugPrint("Error fetching media house by id: $error");
+    } finally {
+      _isLoadingMediaHouse = false;
+      notifyListeners();
+    }
+  }
+
+  // Fetch Movie Transactions by Media House ID (v2)
+  Future<void> fetchMovieTransactions(
+    int mediaHouseId, {
+    String? startDate,
+    String? endDate,
+    int page = 0,
+    int size = 10,
+  }) async {
+    _isLoadingMovieTransactions = true;
+    notifyListeners();
+    String apiUrl = ApiConstant.movieTransactionsByMediaHouse(
+      mediaHouseId,
+      startDate: startDate,
+      endDate: endDate,
+      page: page,
+      size: size,
+    );
+    ApiHelper apiHelper = ApiHelper();
+    try {
+      var response = await apiHelper.getApi(apiUrl);
+      debugPrint("MovieTransactions response: ${response.body}");
+      if (response.statusCode == 200) {
+        Map<String, dynamic> responseBody = json.decode(response.body);
+        MovieTransactionResponse transactionResponse =
+            MovieTransactionResponse.fromJson(responseBody);
+        _movieTransactions = transactionResponse.data;
+      }
+    } catch (error) {
+      debugPrint("Error fetching movie transactions: $error");
+    } finally {
+      _isLoadingMovieTransactions = false;
+      notifyListeners();
+    }
+  }
+
 
   // Fetch all moviesByMediaHouseId
   Future<void> fetchMediaHouseDashboardData(int mediaHouseId) async {
@@ -92,8 +250,11 @@ class MediaHouseProvider extends ChangeNotifier {
     }
     String apiUrl = ApiConstant.getMediaHouseDashboardCount(mediaHouseId);
     ApiHelper apiHelper = ApiHelper();
+    debugPrint("MediaHouseDashboardCount apiUrl: $apiUrl");
     try {
       var response = await apiHelper.getApi(apiUrl);
+      debugPrint(
+          "MediaHouseDashboardCount response: ${response.body}, statusCode: ${response.statusCode}");
       if (response.statusCode == 200) {
         Map<String, dynamic> responseBody = json.decode(response.body);
         MediaHouseDashboardCount mediaHouseDashboardCount =
@@ -122,9 +283,12 @@ class MediaHouseProvider extends ChangeNotifier {
         throw Exception(
             'Failed to fetch Content. Status code: ${response.statusCode}');
       }
-    } catch (_) {
+    } catch (error) {
       if (cacheLoaded) return;
-      throw Exception('An error occurred while fetching Content.');
+      debugPrint(
+        'Error occurred while fetching media house dashboard data: $error',
+      );
+      notifyListeners();
     }
   }
 
@@ -412,7 +576,12 @@ class MediaHouseProvider extends ChangeNotifier {
       }
     } catch (e) {
       print('Error uploading image: $e');
-      CustomToast.show(context, 'Image upload failed', isSuccess: false);
+      CustomToast.show(
+          context,
+          UserMessage.forException(e,
+              fallbackMessage:
+                  'Unable to upload the image. Please try again.'),
+          isSuccess: false);
     } finally {
       _isUploading = false;
       notifyListeners();
@@ -542,21 +711,161 @@ class MediaHouseProvider extends ChangeNotifier {
     ApiHelper apiHelper = ApiHelper();
     try {
       var response = await apiHelper.deleteApi(apiUrl);
-      if (response.statusCode == 200 || response.statusCode == 500) {
-        CustomToast.show(context, "Deleted Successfully", isSuccess: true);
+      final decoded = response.body.trim().isNotEmpty
+          ? json.decode(response.body) as Object?
+          : null;
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        CustomToast.show(
+            context,
+            UserMessage.resolve(
+                apiResponse: decoded,
+                fallbackMessage: 'Production House deleted successfully.'),
+            isSuccess: true);
         notifyListeners();
         Navigator.pop(context);
       } else {
-        throw Exception(
-            'Failed to fetch mediaHouse. Status code: ${response.statusCode}');
+        CustomToast.show(
+            context,
+            UserMessage.resolve(
+                apiResponse: decoded,
+                fallbackMessage: UserMessage.forStatus(response.statusCode,
+                    fallbackMessage:
+                        'Unable to delete the Production House. Please try again.')),
+            isSuccess: false);
       }
     } catch (error) {
       debugPrint("Error: $error");
-      throw Exception('An error occurred while fetching mediaHouse.');
+      CustomToast.show(
+          context,
+          UserMessage.forException(error,
+              fallbackMessage:
+                  'Unable to delete the Production House. Please try again.'),
+          isSuccess: false);
     }
   }
 
   // Update user data
+  // Update personal details
+  Future<Map<String, Object>> updatePersonalDetails() async {
+    String apiUrl = ApiConstant.editMediaHouseById;
+    Map<String, dynamic> data = {
+      "id": mediaHouse.id,
+      "mediaHouseName": mediaHouseNameController.text.trim(),
+      "firmType": firmTypeController.text.trim(),
+      "email": emailController.text.trim(),
+      "contactNumber": mobileController.text.trim(),
+      "discription": descriptionController.text.trim(),
+      "logo": profileController.text.isEmpty
+          ? mediaHouse.logo
+          : profileController.text.trim(),
+    };
+    return _sendMediaHouseUpdate(apiUrl, data,
+        fallback: 'Unable to update personal details.');
+  }
+
+  // Update bank details
+  Future<Map<String, Object>> updateBankDetails() async {
+    String apiUrl = ApiConstant.editMediaHouseById;
+    Map<String, dynamic> data = {
+      "id": mediaHouse.id,
+      "accountHolderName": accountHolderNameController.text.trim(),
+      "bankName": bankNameController.text.trim(),
+      "bankAccountNumber": bankAccountNumberController.text.trim(),
+      "bankIFSCNumber": bankIfscController.text.trim().toUpperCase(),
+      "bankProof": bankProofController.text.trim().isNotEmpty
+          ? bankProofController.text.trim()
+          : mediaHouse.bankProof,
+      "email": mediaHouse.email,
+      "contactNumber": mediaHouse.contactNumber,
+    };
+    return _sendMediaHouseUpdate(apiUrl, data,
+        fallback: 'Unable to update bank details.');
+  }
+
+  // Update address details
+  Future<Map<String, Object>> updateAddressDetails() async {
+    String apiUrl = ApiConstant.editMediaHouseById;
+    final locationData = {
+      if (mediaHouse.location?.id != null) "id": mediaHouse.location!.id,
+      "officeBuilding": officeBuildingController.text.trim(),
+      "area": areaController.text.trim(),
+      "city": cityController.text.trim(),
+      "taluka": talukaController.text.trim(),
+      "district": districtController.text.trim(),
+      "state": stateController.text.trim(),
+      "country": countryController.text.trim().isNotEmpty
+          ? countryController.text.trim()
+          : "India",
+      "pincode": pincodeController.text.trim(),
+    };
+
+    Map<String, dynamic> data = {
+      "id": mediaHouse.id,
+      "address": officeBuildingController.text.trim().isNotEmpty
+          ? officeBuildingController.text.trim()
+          : addressController.text.trim(),
+      "location": locationData,
+      "email": mediaHouse.email,
+      "contactNumber": mediaHouse.contactNumber,
+    };
+    return _sendMediaHouseUpdate(apiUrl, data,
+        fallback: 'Unable to update address details.');
+  }
+
+  Future<Map<String, Object>> _sendMediaHouseUpdate(
+      String apiUrl, Map<String, dynamic> data,
+      {required String fallback}) async {
+    ApiHelper apiHelper = ApiHelper();
+    try {
+      var response = await apiHelper.putApiWithBody(apiUrl, data);
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        Map<String, dynamic> responseBody = json.decode(response.body);
+        GetMediaHouse updateMediaHouseResponse =
+            GetMediaHouse.fromJson(responseBody);
+
+        if (updateMediaHouseResponse.success == true) {
+          if (updateMediaHouseResponse.data?.mediaHouse != null) {
+            _mediaHouse = updateMediaHouseResponse.data!.mediaHouse!;
+            await LocalSharePreferences().setString(
+              SharedPreferencesConstant.currentMediaHouse,
+              jsonEncode(_mediaHouse.toJson()),
+            );
+            notifyListeners();
+            return {
+              'success': true,
+              'message': updateMediaHouseResponse.message ??
+                  "Profile updated successfully."
+            };
+          }
+        }
+        return {
+          'success': updateMediaHouseResponse.success == true,
+          'message': updateMediaHouseResponse.message ?? fallback
+        };
+      } else {
+        String? message;
+        try {
+          final decoded = json.decode(response.body);
+          message = decoded['message']?.toString();
+        } catch (_) {}
+        return {
+          'success': false,
+          'message': UserMessage.resolve(
+            apiMessage: message,
+            fallbackMessage: UserMessage.forStatus(response.statusCode,
+                fallbackMessage: fallback),
+          ),
+        };
+      }
+    } catch (error) {
+      debugPrint("Error updating media house: $error");
+      return {
+        'success': false,
+        'message': UserMessage.forException(error, fallbackMessage: fallback),
+      };
+    }
+  }
+
   Future<Map<String, Object>> updateMediaHouse() async {
     String apiUrl = ApiConstant.editMediaHouseById;
     ApiHelper apiHelper = ApiHelper();
@@ -612,7 +921,9 @@ class MediaHouseProvider extends ChangeNotifier {
       } else {
         return {
           'failure': true,
-          'message': 'Something went wrong! ${response.statusCode}'
+          'message': UserMessage.forStatus(response.statusCode,
+              fallbackMessage:
+                  'Unable to update the profile. Please try again.')
         };
         // throw Exception('Failed to add user. Status code: ${response.statusCode}');
       }
@@ -620,7 +931,9 @@ class MediaHouseProvider extends ChangeNotifier {
       debugPrint("Error: $error");
       return {
         'success': false,
-        'message': 'An error occurred while update user: $error'
+        'message': UserMessage.forException(error,
+            fallbackMessage:
+                'Unable to update the profile. Please try again.')
       };
     }
   }
@@ -686,7 +999,9 @@ class MediaHouseProvider extends ChangeNotifier {
       } else {
         return {
           'failure': true,
-          'message': 'Something went wrong! ${response.statusCode}'
+          'message': UserMessage.forStatus(response.statusCode,
+              fallbackMessage:
+                  'Unable to update the document. Please try again.')
         };
         // throw Exception('Failed to add user. Status code: ${response.statusCode}');
       }
@@ -694,12 +1009,57 @@ class MediaHouseProvider extends ChangeNotifier {
       debugPrint("Error: $error");
       return {
         'success': false,
-        'message': 'An error occurred while update user: $error'
+        'message': UserMessage.forException(error,
+            fallbackMessage:
+                'Unable to update the document. Please try again.')
       };
     }
   }
 
   void setValue(MediaHouse mediaHouse) {
+    _mediaHouse = mediaHouse;
+    mediaHouseNameController.text = mediaHouse.mediaHouseName ?? "";
+    firmTypeController.text = mediaHouse.firmType?.toString() ?? "";
+    mobileController.text = mediaHouse.contactNumber ?? "";
+    emailController.text = mediaHouse.email ?? "";
+    descriptionController.text = mediaHouse.discription ?? "";
+    profileController.text = mediaHouse.logo ?? "";
+    addressController.text = mediaHouse.address ?? "";
+
+    // Bank details
+    accountHolderNameController.text =
+        mediaHouse.accountHolderName?.toString() ?? "";
+    bankNameController.text = mediaHouse.bankName?.toString() ?? "";
+    bankAccountNumberController.text = mediaHouse.bankAccountNumber ?? "";
+    bankIfscController.text = mediaHouse.bankIfscNumber ?? "";
+    bankProofController.text = mediaHouse.bankProof ?? "";
+
+    // Address & Location details
+    final loc = mediaHouse.location;
+    officeBuildingController.text =
+        loc?.officeBuilding ?? mediaHouse.address ?? "";
+    areaController.text = loc?.area ?? "";
+    cityController.text = loc?.city ?? "";
+    talukaController.text = loc?.taluka ?? "";
+    districtController.text = loc?.district ?? "";
+    stateController.text = loc?.state ?? "";
+    countryController.text =
+        loc?.country?.isNotEmpty == true ? loc!.country! : "India";
+    pincodeController.text = loc?.pincode ?? "";
+
+    // Documents
+    adharCardController.text = mediaHouse.adharCard ?? "";
+    panCardController.text = mediaHouse.panCard ?? "";
+    shopActController.text = mediaHouse.shopAct ?? "";
+    gstController.text = mediaHouse.gstCertificates ?? "";
+    identityProofController.text = mediaHouse.identityProof ?? "";
+    addressProofController.text = mediaHouse.addressProof ?? "";
+    registrationCertificateController.text =
+        mediaHouse.registrationCertificate ?? "";
+    notifyListeners();
+  }
+
+  void legacySetValue(MediaHouse mediaHouse) {
     print("SEtData${mediaHouse.mediaHouseName}");
     mediaHouseNameController.text = mediaHouse.mediaHouseName ?? "";
     mobileController.text = mediaHouse.contactNumber ?? "";

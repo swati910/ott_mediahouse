@@ -15,6 +15,8 @@ import '../../data/models/response/video_upload_response.dart';
 import '../core/auth/auth_service.dart';
 import '../core/network/api_helper.dart';
 import '../core/utils/sharepreferences.dart';
+import '../core/upload/multipart_upload_persistence.dart';
+import '../core/upload/s3_multipart_upload_service.dart';
 
 class ShortProvider extends ChangeNotifier {
   List<ShortModel> shorts = [];
@@ -29,6 +31,7 @@ class ShortProvider extends ChangeNotifier {
   bool _isMovieUploading = false;
   double movieUploadProgress = 0.0;
   Map<String, List<String>> _groupedLanguageOptions = {};
+  Future<void>? _languageOptionsRequest;
   Map<String, List<String>> get groupedLanguageOptions =>
       Map.unmodifiable(_groupedLanguageOptions);
   List<String> get languageOptions => _groupedLanguageOptions.values
@@ -40,11 +43,64 @@ class ShortProvider extends ChangeNotifier {
   bool get isLanguageOptionsLoading => _isLanguageOptionsLoading;
   String? _languageOptionsError;
   String? get languageOptionsError => _languageOptionsError;
-  Future<void>? _languageOptionsRequest;
-
   bool get isMovieUploading => _isMovieUploading;
 
   final TextEditingController movieUrlController = TextEditingController();
+
+  html.File? partSelectedFile;
+  final Map<String, S3MultipartUploadTask> _partUploadTasks = {};
+  final Map<String, MultipartProgressInfo> _partUploadProgressInfo = {};
+
+  MultipartProgressInfo? getPartProgressInfo(String taskId) =>
+      _partUploadProgressInfo[taskId];
+
+  Future<void> startPartMultipartUpload({
+    required html.File file,
+    required String contentId,
+    required String taskId,
+  }) async {
+    partSelectedFile = file;
+
+    final task = S3MultipartUploadTask(
+      localTaskId: taskId,
+      file: file,
+      contentId: contentId,
+      onProgress: (info) {
+        _partUploadProgressInfo[taskId] = info;
+        notifyListeners();
+      },
+    );
+
+    _partUploadTasks[taskId] = task;
+    await task.startOrResume();
+  }
+
+  void pausePartMultipartUpload(String taskId) {
+    _partUploadTasks[taskId]?.pause();
+  }
+
+  Future<void> resumePartMultipartUpload(String taskId, {html.File? file}) async {
+    final task = _partUploadTasks[taskId];
+    final targetFile = file ?? partSelectedFile;
+    if (task != null && targetFile != null) {
+      await task.startOrResume(reselectedFile: targetFile);
+    }
+  }
+
+  Future<void> retryPartMultipartUpload(String taskId) async {
+    final task = _partUploadTasks[taskId];
+    if (task != null && partSelectedFile != null) {
+      await task.startOrResume(reselectedFile: partSelectedFile);
+    }
+  }
+
+  Future<void> abortPartMultipartUpload(String taskId) async {
+    final task = _partUploadTasks[taskId];
+    await task?.abort();
+    _partUploadTasks.remove(taskId);
+    _partUploadProgressInfo.remove(taskId);
+    notifyListeners();
+  }
 
   Future<void> uploadVideoWeb(bool isTrailer) async {
     html.FileUploadInputElement uploadInput = html.FileUploadInputElement();
@@ -54,6 +110,8 @@ class ShortProvider extends ChangeNotifier {
     uploadInput.onChange.listen((event) async {
       final file = uploadInput.files?.first;
       if (file == null) return;
+
+      partSelectedFile = file;
 
       final xhr = html.HttpRequest();
       final formData = html.FormData();
@@ -270,13 +328,23 @@ class ShortProvider extends ChangeNotifier {
       return;
     }
 
-    final url = ApiConstant.shortsMaster(
+    final url = ApiConstant.shortsByMediaHouse(
       mediaHouseId,
       keyword: keyword,
       page: page,
       size: size,
     );
     await _fetchShortsFromUrl(url);
+    if (shorts.isEmpty && (shortsError != null && shortsError!.isNotEmpty)) {
+      // Fallback to legacy endpoint if v2 returns error
+      final fallbackUrl = ApiConstant.shortsMaster(
+        mediaHouseId,
+        keyword: keyword,
+        page: page,
+        size: size,
+      );
+      await _fetchShortsFromUrl(fallbackUrl);
+    }
   }
 
   Future<void> fetchTrendingShorts({
@@ -517,6 +585,49 @@ class ShortProvider extends ChangeNotifier {
     return true;
   }
 
+  // ==========================================
+  // FETCH CAST BY SHORT ID
+  // ==========================================
+  List<Map<String, dynamic>> _shortCastList = [];
+  bool _isLoadingShortCast = false;
+  List<Map<String, dynamic>> get shortCastList => _shortCastList;
+  bool get isLoadingShortCast => _isLoadingShortCast;
+
+  Future<void> fetchCastByShortId(int shortId) async {
+    if (shortId <= 0) {
+      _shortCastList = [];
+      notifyListeners();
+      return;
+    }
+    _isLoadingShortCast = true;
+    notifyListeners();
+    final apiHelper = ApiHelper();
+    try {
+      final apiUrl = ApiConstant.getCastByShortId(shortId);
+      final response = await apiHelper.getApi(apiUrl);
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final decoded = jsonDecode(response.body);
+        final list = decoded["data"] ?? decoded["cast"] ?? decoded;
+        if (list is List) {
+          _shortCastList = list
+              .whereType<Map>()
+              .map((m) => Map<String, dynamic>.from(m))
+              .toList();
+        } else {
+          _shortCastList = [];
+        }
+      } else {
+        _shortCastList = [];
+      }
+    } catch (e) {
+      debugPrint("Error fetching cast by shortId: $e");
+      _shortCastList = [];
+    } finally {
+      _isLoadingShortCast = false;
+      notifyListeners();
+    }
+  }
+
   Future<bool> deleteShortMaster({
     required int shortId,
     void Function(String message)? onMessage,
@@ -662,6 +773,24 @@ class ShortProvider extends ChangeNotifier {
       final decoded = jsonDecode(response.body);
       if (decoded is Map && decoded["success"] == false) {
         return false;
+      }
+
+      if (partSelectedFile != null) {
+        try {
+          final dataMap = decoded is Map<String, dynamic>
+              ? (decoded['data'] ?? decoded)
+              : <String, dynamic>{};
+          final partId = dataMap['id'] ?? dataMap['contentId'] ?? dataMap['partId'];
+          if (partId != null) {
+            startPartMultipartUpload(
+              file: partSelectedFile!,
+              contentId: partId.toString(),
+              taskId: 'part_$partId',
+            );
+          }
+        } catch (e) {
+          debugPrint("Error parsing part ID for multipart upload: $e");
+        }
       }
 
       return true;

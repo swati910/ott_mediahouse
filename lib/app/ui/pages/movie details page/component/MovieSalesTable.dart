@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:media_house/app/core/utils/currency_formatter.dart';
 import 'package:media_house/app/provider/themeProvider.dart';
 import 'package:provider/provider.dart';
 
@@ -119,13 +120,13 @@ class MovieSalesTable extends StatelessWidget {
                   children: [
                     _TableCell(text: row['date']!),
                     _TableCell(
-                        text: formatter.format(int.parse(row['price']!))),
+                        text: formatAmount(row['price']!)),
                     _TableCell(
                         text: formatter.format(int.parse(row['sale']!))),
                     _TableCell(
                         text: formatter.format(int.parse(row['views']!))),
                     _TableCell(
-                        text: formatter.format(int.parse(row['revenue']!))),
+                        text: formatAmount(row['revenue']!)),
                   ],
                 ),
               );

@@ -69,7 +69,7 @@ void main() {
 
   test('builds single-ott URLs and safely derives transaction batch', () {
     expect(ApiConstant.mediaHouseSettlements(2),
-        'https://filmytell.in/ott/api/settlements/media-house/2?page=0&size=10');
+        '${ApiConstant.baseUrl}api/settlements/media-house/2?page=0&size=10');
     final settlement = MediaHouseSettlement.fromJson({
       'settlementId': 'WKL-SET-2026-W26-001-TXN-79',
     });
@@ -90,5 +90,39 @@ void main() {
       },
     });
     expect(response.data.hasCalculations, isFalse);
+  });
+
+  test('weekly report parses map sections and formatted summary values', () {
+    final response = WeeklySettlementReportResponse.fromJson({
+      'success': true,
+      'statusCode': 200,
+      'data': {
+        'summaryCards': [
+          {
+            'displayName': 'Total Customer Collection',
+            'formattedValue': 'Rs. 2110.00',
+          }
+        ],
+        'sections': {
+          'Step 1: Collection breakup': {
+            'calculations': {
+              'baseAmount': 1788.1356,
+              'gstIncluded': 321.8644,
+            }
+          }
+        },
+        'beneficiarySettlementSummary': {},
+        'taxAndChargeSummary': {},
+        'finalSummary': {},
+      },
+    });
+
+    expect(
+        response.data.summaryCards.single.label, 'Total Customer Collection');
+    expect(response.data.summaryCards.single.value, 'Rs. 2110.00');
+    expect(response.data.sections.single.title, 'Step 1: Collection breakup');
+    expect(response.data.sections.single.entries, hasLength(2));
+    expect(response.data.sections.single.entries.first.label, 'baseAmount');
+    expect(response.data.sections.single.entries.first.value, 1788.1356);
   });
 }

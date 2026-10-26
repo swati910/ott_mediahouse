@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:media_house/app/core/utils/user_message.dart';
 
 class CustomToast {
+  static String? _lastMessage;
+  static DateTime? _lastShownAt;
+
   static void show(
     BuildContext context,
     String message, {
@@ -8,13 +12,23 @@ class CustomToast {
     bool isWarning = false,
     Duration duration = const Duration(seconds: 3),
   }) {
+    final safeMessage = UserMessage.sanitize(message) ??
+        'Unable to complete the request. Please try again.';
+    final now = DateTime.now();
+    if (_lastMessage == safeMessage &&
+        _lastShownAt != null &&
+        now.difference(_lastShownAt!) < const Duration(milliseconds: 800)) {
+      return;
+    }
+    _lastMessage = safeMessage;
+    _lastShownAt = now;
     final overlay = Overlay.of(context);
     final entry = OverlayEntry(
       builder: (context) => Positioned(
         top: 50,
         right: 16,
         child: _ToastWidget(
-          message: message,
+          message: safeMessage,
           isSuccess: isSuccess,
         ),
       ),

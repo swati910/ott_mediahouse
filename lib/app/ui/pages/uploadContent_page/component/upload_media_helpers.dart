@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../../../../core/utils/image_validation_service.dart';
 import '../../../../provider/videoProvider.dart';
+import '../../../widget/multipart_upload_progress_widget.dart';
+import '../../../../core/upload/s3_multipart_upload_service.dart';
 
 class UploadMediaHelpers {
   static Widget buildEnhancedUploadSection(
@@ -48,7 +50,16 @@ class UploadMediaHelpers {
                 color: selectedThemeData.canvasColor,
               ),
             ),
-            if (isImageFile(label)) ...[
+            if (label == "Cast Image" || label == "Crew Image") ...[
+              const SizedBox(height: 4),
+              Text(
+                "Optional",
+                style: TextStyle(
+                  fontSize: 12,
+                  color: selectedThemeData.canvasColor.withOpacity(0.65),
+                ),
+              ),
+            ] else if (isImageFile(label)) ...[
               const SizedBox(height: 4),
               Text(
                 ImageValidationService.guidelineFor(ImageValidationType.poster),
@@ -170,6 +181,81 @@ class UploadMediaHelpers {
                                       textAlign: TextAlign.center,
                                     ),
                                   ),
+                                  if (isUploaded) ...[
+                                    const SizedBox(width: 8),
+                                    if (imageUrl != null && imageUrl.isNotEmpty) ...[
+                                      InkWell(
+                                        onTap: () => UploadMediaHelpers.showImagePreview(
+                                            context, imageUrl, label, selectedThemeData),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 8, vertical: 5),
+                                          decoration: BoxDecoration(
+                                            color: Colors.blue,
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: const Text(
+                                            "View",
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                    ],
+                                    InkWell(
+                                      onTap: () async {
+                                        if (label == "Movie File" ||
+                                            label == "Trailer File" ||
+                                            label == "Teaser File") {
+                                          await provider.uploadVideoByLabel(label);
+                                        } else if (label.contains("Audio")) {
+                                          await provider.pickAudioFile(context, label);
+                                        } else {
+                                          await provider.pickImage(label, context);
+                                        }
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 5),
+                                        decoration: BoxDecoration(
+                                          color: selectedThemeData.primaryColor,
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: const Text(
+                                          "Replace",
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    InkWell(
+                                      onTap: () => UploadMediaHelpers.deleteMediaByLabel(label, provider),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 5),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red,
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: const Text(
+                                          "Delete",
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                       ),
@@ -177,6 +263,42 @@ class UploadMediaHelpers {
                 ),
               ),
             ),
+            if (label == "Teaser File" &&
+                provider.activeTeaserProgressInfo != null &&
+                provider.activeTeaserProgressInfo!.state != MultipartUploadState.idle) ...[
+              const SizedBox(height: 12),
+              MultipartUploadProgressWidget(
+                info: provider.activeTeaserProgressInfo!,
+                onPause: () => provider.pauseTeaserMultipartUpload(),
+                onResume: () => provider.resumeTeaserMultipartUpload(),
+                onRetry: () => provider.retryTeaserMultipartUpload(),
+                onAbort: () => provider.abortTeaserMultipartUpload(),
+              ),
+            ],
+            if (label == "Trailer File" &&
+                provider.activeTrailerProgressInfo != null &&
+                provider.activeTrailerProgressInfo!.state != MultipartUploadState.idle) ...[
+              const SizedBox(height: 12),
+              MultipartUploadProgressWidget(
+                info: provider.activeTrailerProgressInfo!,
+                onPause: () => provider.pauseTrailerMultipartUpload(),
+                onResume: () => provider.resumeTrailerMultipartUpload(),
+                onRetry: () => provider.retryTrailerMultipartUpload(),
+                onAbort: () => provider.abortTrailerMultipartUpload(),
+              ),
+            ],
+            if ((label == "Movie File" || label == "Video File") &&
+                provider.activePrimaryProgressInfo != null &&
+                provider.activePrimaryProgressInfo!.state != MultipartUploadState.idle) ...[
+              const SizedBox(height: 12),
+              MultipartUploadProgressWidget(
+                info: provider.activePrimaryProgressInfo!,
+                onPause: () => provider.pausePrimaryMultipartUpload(),
+                onResume: () => provider.resumePrimaryMultipartUpload(),
+                onRetry: () => provider.retryPrimaryMultipartUpload(),
+                onAbort: () => provider.abortPrimaryMultipartUpload(),
+              ),
+            ],
           ],
         );
       },
@@ -231,7 +353,7 @@ class UploadMediaHelpers {
                   children: [
                     GestureDetector(
                       onTap: () => UploadMediaHelpers.showImagePreview(
-                          context, imageUrl, label, themeData), // Pass context
+                          context, imageUrl, label, themeData),
                       child: Container(
                         padding: const EdgeInsets.all(4),
                         decoration: BoxDecoration(
@@ -246,6 +368,32 @@ class UploadMediaHelpers {
                       ),
                     ),
                     const SizedBox(width: 8),
+                    Consumer<VideoProvider>(
+                      builder: (context, provider, child) {
+                        return InkWell(
+                          onTap: () async {
+                            await provider.pickImage(label, context);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: themeData.primaryColor,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              "Replace",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 6),
                     const Icon(
                       Icons.check_circle,
                       color: Colors.green,
@@ -409,6 +557,82 @@ class UploadMediaHelpers {
       default:
         return null;
     }
+  }
+
+  static void deleteMediaByLabel(String label, VideoProvider provider) {
+    switch (label) {
+      case "Trailer File":
+        provider.trailerUrlController.clear();
+        provider.trailerFileName = null;
+        provider.trailerUploadProgress = 0.0;
+        provider.trailerUploadProgressInfo = null;
+        provider.trailerSelectedFile = null;
+        provider.trailerUploadTask = null;
+        for (final langMap in provider.movieVariantControllers.values) {
+          langMap['trailer']?.clear();
+        }
+        break;
+      case "Teaser File":
+        provider.teaserUrlController.clear();
+        provider.teaserFileName = null;
+        provider.teaserUploadProgress = 0.0;
+        provider.teaserUploadProgressInfo = null;
+        provider.teaserSelectedFile = null;
+        provider.teaserUploadTask = null;
+        for (final langMap in provider.movieVariantControllers.values) {
+          langMap['teaser']?.clear();
+        }
+        break;
+      case "Movie File":
+        provider.movieUrlController.clear();
+        provider.movieFileName = null;
+        provider.movieUploadProgress = 0.0;
+        provider.primaryUploadProgressInfo = null;
+        provider.primarySelectedFile = null;
+        provider.primaryUploadTask = null;
+        for (final langMap in provider.movieVariantControllers.values) {
+          langMap['movie']?.clear();
+        }
+        break;
+      case "Censor Certificate":
+        provider.censorCertificateController.clear();
+        provider.censorUploadProgress = 0.0;
+        break;
+      case "Poster 1":
+        provider.poster1Controller.clear();
+        provider.poster1UploadProgress = 0.0;
+        for (final langMap in provider.movieVariantControllers.values) {
+          langMap['poster1']?.clear();
+        }
+        break;
+      case "Poster 2":
+        provider.poster2Controller.clear();
+        provider.poster2UploadProgress = 0.0;
+        for (final langMap in provider.movieVariantControllers.values) {
+          langMap['poster2']?.clear();
+        }
+        break;
+      case "Poster 3":
+        provider.poster3Controller.clear();
+        provider.poster3UploadProgress = 0.0;
+        for (final langMap in provider.movieVariantControllers.values) {
+          langMap['poster3']?.clear();
+        }
+        break;
+      case "Cast Image":
+        provider.castImageController.clear();
+        break;
+      case "Crew Image":
+        provider.crewImageController.clear();
+        break;
+      default:
+        if (label.endsWith(" Audio")) {
+          final language = label.replaceAll(" Audio", "");
+          provider.audioControllers[language]?.clear();
+        }
+        break;
+    }
+    provider.notifyListeners();
   }
 
   static bool getUploadStatus(String label, VideoProvider provider) {

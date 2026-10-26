@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -37,6 +39,7 @@ class _PendingAgreementTabState extends State<PendingAgreementTab> {
   MediaHouse? _mediaHouse;
   bool _isDownloading = false;
   bool _isSubmitting = false;
+  bool _isWorkflowUpdating = false;
   bool get _supportsNativeRazorpay =>
       defaultTargetPlatform == TargetPlatform.android ||
       defaultTargetPlatform == TargetPlatform.iOS;
@@ -87,7 +90,8 @@ class _PendingAgreementTabState extends State<PendingAgreementTab> {
       CustomToast.show(context, 'Agreement template downloaded.',
           isSuccess: true);
     } catch (error) {
-      CustomToast.show(context, 'Unable to download agreement: $error',
+      CustomToast.show(
+          context, 'Unable to download the agreement. Please try again.',
           isSuccess: false);
     } finally {
       if (mounted) {
@@ -156,10 +160,12 @@ class _PendingAgreementTabState extends State<PendingAgreementTab> {
         prefillEmail: user?.emailId ?? '',
         prefillName: userName,
         logoUrl: _razorpayLogoUrl,
-        onSuccess: (paymentId) => _applyPaymentSuccess(
-          paymentId: paymentId,
-          paymentMethod: 'Razorpay (Web)',
-        ),
+        onSuccess: (paymentId) {
+          unawaited(_applyPaymentSuccess(
+            paymentId: paymentId,
+            paymentMethod: 'Razorpay (Web)',
+          ));
+        },
         onError: (message) =>
             CustomToast.show(context, message, isSuccess: false),
         onExternalWallet: (wallet) => CustomToast.show(
@@ -184,7 +190,8 @@ class _PendingAgreementTabState extends State<PendingAgreementTab> {
         'theme': {'color': '#1A73E8'},
       });
     } catch (error) {
-      CustomToast.show(context, 'Unable to open payment gateway: $error',
+      CustomToast.show(
+          context, 'Unable to open the payment gateway. Please try again.',
           isSuccess: false);
     }
   }
@@ -199,7 +206,12 @@ class _PendingAgreementTabState extends State<PendingAgreementTab> {
   void _handlePaymentSuccess(PaymentSuccessResponse response) {
     final paymentId =
         (response.paymentId ?? response.orderId ?? '').toString().trim();
-    _applyPaymentSuccess(paymentId: paymentId, paymentMethod: 'Razorpay');
+    unawaited(
+      _applyPaymentSuccess(
+        paymentId: paymentId,
+        paymentMethod: 'Razorpay',
+      ),
+    );
   }
 
   void _handlePaymentError(PaymentFailureResponse response) {
@@ -212,10 +224,10 @@ class _PendingAgreementTabState extends State<PendingAgreementTab> {
     CustomToast.show(context, 'Payment switched to $wallet.', isWarning: true);
   }
 
-  void _applyPaymentSuccess({
+  Future<void> _applyPaymentSuccess({
     required String paymentId,
     required String paymentMethod,
-  }) {
+  }) async {
     if (!mounted) return;
     final normalizedPaymentId = paymentId.trim();
     if (normalizedPaymentId.isEmpty) {
@@ -228,7 +240,9 @@ class _PendingAgreementTabState extends State<PendingAgreementTab> {
     }
     final provider = context.read<VideoProvider>();
     final amountText = provider.registrationAmountPaidController.text.trim();
-    final amount = (double.tryParse(amountText) ?? 499.0).toStringAsFixed(2);
+    final amount = amountText.isNotEmpty
+        ? (num.tryParse(amountText)?.toString() ?? amountText)
+        : '499';
     provider.setRegistrationPaymentDetails(
       paymentId: normalizedPaymentId,
       paymentDate: _formatDate(DateTime.now()),
@@ -244,8 +258,38 @@ class _PendingAgreementTabState extends State<PendingAgreementTab> {
     );
     provider.registrationFeeDetailsController.text =
         provider.registrationFeeDetailsValue;
-    CustomToast.show(context, 'Onboarding charges paid successfully.',
-        isSuccess: true);
+
+    final contentId = (provider.content ?? widget.movie).id;
+    if (contentId == null) {
+      CustomToast.show(
+        context,
+        'Payment succeeded, but content details are unavailable for updating.',
+        isSuccess: false,
+      );
+      return;
+    }
+
+    setState(() => _isWorkflowUpdating = true);
+    final result = await provider.updateContentAgreementWorkflow(
+      contentId: contentId,
+    );
+    if (!mounted) return;
+    setState(() => _isWorkflowUpdating = false);
+    CustomToast.show(
+      context,
+      result['message']?.toString() ??
+          (result['success'] == true
+              ? 'Onboarding charges paid successfully.'
+              : 'Payment succeeded, but the content could not be updated.'),
+      isSuccess: result['success'] == true,
+    );
+    if (result['success'] == true) {
+      try {
+        await provider.getContentById(contentId);
+      } catch (_) {
+        // The update succeeded; keep the current workflow state.
+      }
+    }
   }
 
   Future<void> _submitForApproval(VideoProvider provider, Content movie) async {
@@ -421,19 +465,53 @@ class _PendingAgreementTabState extends State<PendingAgreementTab> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: provider.isAgreementUploading
+                          onPressed: provider.isAgreementUploading ||
+                                  _isWorkflowUpdating
                               ? null
                               : () async {
                                   final uploaded = await provider
                                       .pickAndUploadAgreementDocument();
                                   if (!mounted) return;
+                                  if (!uploaded) {
+                                    CustomToast.show(
+                                      context,
+                                      'Agreement upload cancelled.',
+                                      isSuccess: false,
+                                    );
+                                    return;
+                                  }
+
+                                  final contentId =
+                                      (provider.content ?? movie).id;
+                                  if (contentId == null) {
+                                    CustomToast.show(
+                                      context,
+                                      'Agreement uploaded, but content details are unavailable for updating.',
+                                      isSuccess: false,
+                                    );
+                                    return;
+                                  }
+
+                                  setState(() => _isWorkflowUpdating = true);
+                                  final result = await provider
+                                      .updateContentAgreementWorkflow(
+                                    contentId: contentId,
+                                  );
+                                  if (!mounted) return;
+                                  setState(() => _isWorkflowUpdating = false);
                                   CustomToast.show(
                                     context,
-                                    uploaded
-                                        ? 'Signed agreement uploaded successfully.'
-                                        : 'Agreement upload cancelled.',
-                                    isSuccess: uploaded,
+                                    result['message']?.toString() ??
+                                        'Unable to update the agreement details.',
+                                    isSuccess: result['success'] == true,
                                   );
+                                  if (result['success'] == true) {
+                                    try {
+                                      await provider.getContentById(contentId);
+                                    } catch (_) {
+                                      // The update succeeded; keep local state.
+                                    }
+                                  }
                                 },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: theme.primaryColor,
@@ -487,6 +565,7 @@ class _PendingAgreementTabState extends State<PendingAgreementTab> {
                             : 'Upload signed agreement first, then complete payment',
                         provider.isRegistrationFeePaid,
                         (value) {
+                          if (_isWorkflowUpdating) return;
                           if (value) {
                             if (!provider.hasUploadedAgreement) {
                               CustomToast.show(

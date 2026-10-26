@@ -8,6 +8,9 @@ class RaiseTicketRequest {
   String? mobileNumber;
   int? tickedId;
   String? topic;
+  String? title;
+  String? priority;
+  String? category;
   int? userId;
 
   RaiseTicketRequest({
@@ -20,20 +23,30 @@ class RaiseTicketRequest {
     this.mobileNumber,
     this.tickedId,
     this.topic,
+    this.title,
+    this.priority,
+    this.category,
     this.userId,
   });
 
   factory RaiseTicketRequest.fromJson(Map<String, dynamic> json) => RaiseTicketRequest(
-    date: json["date"],
-    description: json["description"],
-    email: json["email"],
-    feedback: json["feedback"],
-    image: json["image"],
-    isResolved: json["isResolved"],
-    mobileNumber: json["mobileNumber"],
-    tickedId: json["tickedId"],
-    topic: json["topic"],
-    userId: json["userId"],
+    date: json["date"]?.toString(),
+    description: json["description"]?.toString(),
+    email: json["email"]?.toString(),
+    feedback: json["feedback"]?.toString(),
+    image: json["image"]?.toString(),
+    isResolved: json["isResolved"] == true,
+    mobileNumber: json["mobileNumber"]?.toString(),
+    tickedId: json["tickedId"] is int
+        ? json["tickedId"]
+        : int.tryParse(json["tickedId"]?.toString() ?? ''),
+    topic: json["topic"]?.toString() ?? json["title"]?.toString(),
+    title: json["title"]?.toString() ?? json["topic"]?.toString(),
+    priority: json["priority"]?.toString(),
+    category: json["category"]?.toString(),
+    userId: json["userId"] is int
+        ? json["userId"]
+        : int.tryParse(json["userId"]?.toString() ?? ''),
   );
 
   Map<String, dynamic> toJson() => {
@@ -45,7 +58,10 @@ class RaiseTicketRequest {
     "isResolved": isResolved,
     "mobileNumber": mobileNumber,
     "tickedId": tickedId,
-    "topic": topic,
+    "topic": topic ?? title,
+    "title": title ?? topic,
+    if (priority != null && priority!.isNotEmpty) "priority": priority,
+    if (category != null && category!.isNotEmpty) "category": category,
     "userId": userId,
   };
 }

@@ -1,5 +1,3 @@
-
-
 import '../../../domain/entities/user.dart';
 
 class GetRaiseTicketListResponse {
@@ -15,8 +13,10 @@ class GetRaiseTicketListResponse {
 
   factory GetRaiseTicketListResponse.fromJson(Map<String, dynamic> json) => GetRaiseTicketListResponse(
     data: json["data"] == null ? null : Data.fromJson(json["data"]),
-    message: json["message"],
-    status: json["status"],
+    message: json["message"]?.toString(),
+    status: json["status"] is int
+        ? json["status"]
+        : int.tryParse(json["status"]?.toString() ?? ''),
   );
 
   Map<String, dynamic> toJson() => {
@@ -34,7 +34,11 @@ class Data {
   });
 
   factory Data.fromJson(Map<String, dynamic> json) => Data(
-    ticketRaised: json["TicketRaised"] == null ? [] : List<TicketRaised>.from(json["TicketRaised"]!.map((x) => TicketRaised.fromJson(x))),
+    ticketRaised: json["TicketRaised"] == null
+        ? (json["ticketRaised"] == null
+            ? []
+            : List<TicketRaised>.from(json["ticketRaised"]!.map((x) => TicketRaised.fromJson(x))))
+        : List<TicketRaised>.from(json["TicketRaised"]!.map((x) => TicketRaised.fromJson(x))),
   );
 
   Map<String, dynamic> toJson() => {
@@ -45,6 +49,9 @@ class Data {
 class TicketRaised {
   int? tickedId;
   String? topic;
+  String? title;
+  String? priority;
+  String? category;
   String? mobileNumber;
   String? email;
   User? user;
@@ -58,6 +65,9 @@ class TicketRaised {
   TicketRaised({
     this.tickedId,
     this.topic,
+    this.title,
+    this.priority,
+    this.category,
     this.mobileNumber,
     this.email,
     this.user,
@@ -70,22 +80,34 @@ class TicketRaised {
   });
 
   factory TicketRaised.fromJson(Map<String, dynamic> json) => TicketRaised(
-    tickedId: json["tickedId"],
-    topic: json["topic"],
-    mobileNumber: json["mobileNumber"],
-    email: json["email"],
+    tickedId: json["tickedId"] is int
+        ? json["tickedId"]
+        : int.tryParse(json["tickedId"]?.toString() ?? json["id"]?.toString() ?? ''),
+    topic: json["topic"]?.toString() ?? json["title"]?.toString(),
+    title: json["title"]?.toString() ?? json["topic"]?.toString(),
+    priority: json["priority"]?.toString() ?? "MEDIUM",
+    category: json["category"]?.toString() ?? "GENERAL",
+    mobileNumber: json["mobileNumber"]?.toString() ?? json["phone"]?.toString(),
+    email: json["email"]?.toString(),
     user: json["user"] == null ? null : User.fromJson(json["user"]),
-    userId: json["userId"],
-    date: json["date"],
-    feedback: json["feedback"],
-    image: json["image"],
-    description: json["description"],
-    isResolved: json["isResolved"],
+    userId: json["userId"] is int
+        ? json["userId"]
+        : int.tryParse(json["userId"]?.toString() ?? ''),
+    date: json["date"] is int
+        ? json["date"]
+        : int.tryParse(json["date"]?.toString() ?? ''),
+    feedback: json["feedback"]?.toString(),
+    image: json["image"]?.toString(),
+    description: json["description"]?.toString(),
+    isResolved: json["isResolved"] == true || json["resolved"] == true,
   );
 
   Map<String, dynamic> toJson() => {
     "tickedId": tickedId,
     "topic": topic,
+    "title": title,
+    "priority": priority,
+    "category": category,
     "mobileNumber": mobileNumber,
     "email": email,
     "user": user?.toJson(),

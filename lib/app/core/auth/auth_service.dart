@@ -82,30 +82,93 @@ class AuthService {
   static Future<bool> isAuthenticated() async {
     final prefs = await SharedPreferences.getInstance();
     final token = await getAccessToken();
-    final userJson = prefs.getString(SharedPreferencesConstant.currentUser);
-    if ((prefs.getBool(SharedPreferencesConstant.isLogin) ?? false) != true ||
-        token == null ||
-        token.trim().isEmpty ||
-        userJson == null ||
-        userJson.trim().isEmpty) {
+    if (token == null || token.trim().isEmpty) {
       return false;
     }
 
+    final userJson = prefs.getString(SharedPreferencesConstant.currentUser);
+    final storedRoles = _readStoredRoles(
+      prefs.getString(SharedPreferencesConstant.role),
+    );
+
     try {
-      final user = User.fromJson(jsonDecode(userJson));
-      return hasProductionHouseAccess(user);
+      if (userJson != null && userJson.trim().isNotEmpty) {
+        final decoded = jsonDecode(userJson);
+        if (decoded is Map) {
+          final user = User.fromJson(Map<String, dynamic>.from(decoded));
+          if ((user.role == null || user.role!.isEmpty) &&
+              storedRoles.isNotEmpty) {
+            user.role = storedRoles;
+          }
+          if (hasProductionHouseAccess(user)) {
+            await _markSessionRestored(prefs, user);
+            return true;
+          }
+        }
+      }
     } catch (_) {
+      // Fall through to the separately persisted session metadata.
+    }
+
+    if (!_hasProductionHouseRole(storedRoles)) {
       return false;
     }
+
+    final restoredUser = User(
+      id: prefs.getInt(SharedPreferencesConstant.userId),
+      emailId: prefs.getString(SharedPreferencesConstant.userName) ?? '',
+      role: storedRoles,
+    );
+    await _markSessionRestored(prefs, restoredUser);
+    return true;
+  }
+
+  static List<dynamic> _readStoredRoles(String? encodedRoles) {
+    if (encodedRoles == null || encodedRoles.trim().isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(encodedRoles);
+      if (decoded is List) return List<dynamic>.from(decoded);
+      if (decoded is String && decoded.trim().isNotEmpty) return [decoded];
+    } catch (_) {
+      return encodedRoles
+          .split(',')
+          .map((role) => role.trim())
+          .where((role) => role.isNotEmpty)
+          .toList();
+    }
+    return const [];
+  }
+
+  static bool _hasProductionHouseRole(List<dynamic> roles) {
+    final allowed =
+        productionHouseRoles.map((role) => role.toLowerCase()).toSet();
+    return roles.any(
+      (role) => allowed.contains(_roleName(role).toLowerCase()),
+    );
+  }
+
+  static String _roleName(dynamic role) {
+    if (role is Map) {
+      return (role['name'] ?? role['role'] ?? role['authority'] ?? '')
+          .toString()
+          .trim();
+    }
+    return role.toString().trim();
+  }
+
+  static Future<void> _markSessionRestored(
+    SharedPreferences prefs,
+    User user,
+  ) async {
+    await prefs.setBool(SharedPreferencesConstant.isLogin, true);
+    await prefs.setString(
+      SharedPreferencesConstant.currentUser,
+      jsonEncode(LocalDataSanitizer.userDisplayHint(user.toJson())),
+    );
   }
 
   static bool hasProductionHouseAccess(User? user) {
-    final roles = user?.role ?? const [];
-    return roles.any(
-      (role) => productionHouseRoles
-          .map((item) => item.toLowerCase())
-          .contains(role.toString().toLowerCase()),
-    );
+    return _hasProductionHouseRole(user?.role ?? const []);
   }
 
   static Future<void> saveLoginSession({

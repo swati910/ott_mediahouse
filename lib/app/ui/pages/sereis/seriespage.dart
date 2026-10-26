@@ -191,7 +191,7 @@ class _SeriesPageState extends State<SeriesPage> {
 
           final totalRevenue = filteredSeries.fold<num>(
             0,
-            (sum, item) => sum + (item.totalRevenue ?? 0),
+            (sum, item) => sum + item.effectiveMediaHouseNetRevenue,
           );
           final totalViews = filteredSeries.fold<num>(
             0,

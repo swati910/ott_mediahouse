@@ -109,10 +109,22 @@ class ReportEntry {
   const ReportEntry(this.fields);
 
   String get label => _firstText(fields, const [
-        'label', 'title', 'name', 'key', 'description'
+        'label',
+        'title',
+        'name',
+        'key',
+        'description',
+        'displayName',
+        'metric'
       ]);
   dynamic get value => _firstValue(fields, const [
-        'value', 'amount', 'count', 'percentage', 'total'
+        'formattedValue',
+        'displayValue',
+        'value',
+        'amount',
+        'count',
+        'percentage',
+        'total'
       ]);
 }
 
@@ -128,9 +140,16 @@ class ReportSection {
   });
 
   factory ReportSection.fromJson(Map<String, dynamic> json) {
-    final rawRows = json['rows'] ?? json['entries'] ?? json['items'] ?? json['data'];
+    final rawRows = json['rows'] ??
+        json['entries'] ??
+        json['items'] ??
+        json['details'] ??
+        json['calculations'] ??
+        json['breakdown'] ??
+        json['data'];
     return ReportSection(
-      title: _firstText(json, const ['title', 'sectionTitle', 'name', 'label']),
+      title: _firstText(
+          json, const ['title', 'sectionTitle', 'name', 'label', 'heading']),
       entries: _entries(rawRows),
       fields: json,
     );
@@ -139,25 +158,90 @@ class ReportSection {
 
 List<ReportEntry> _entries(dynamic raw) {
   if (raw is List) {
-    return raw.map((item) {
-      if (item is Map) return ReportEntry(Map<String, dynamic>.from(item));
-      return ReportEntry({'value': item});
-    }).toList(growable: false);
+    return raw
+        .expand((item) => item is Map
+            ? _entriesFromMap(Map<String, dynamic>.from(item),
+                preserveEntry: true)
+            : [
+                ReportEntry({'value': item})
+              ])
+        .toList(growable: false);
   }
   if (raw is Map) {
-    return raw.entries
-        .map((entry) => ReportEntry({'label': entry.key, 'value': entry.value}))
-        .toList(growable: false);
+    return _entriesFromMap(Map<String, dynamic>.from(raw));
   }
   return const [];
 }
 
-List<ReportSection> _sections(dynamic raw) => raw is List
-    ? raw
+List<ReportEntry> _entriesFromMap(Map<String, dynamic> map,
+    {bool preserveEntry = false}) {
+  if (preserveEntry || _looksLikeEntry(map)) return [ReportEntry(map)];
+  return map.entries.expand((entry) {
+    final value = entry.value;
+    if (value is Map) {
+      final nested = Map<String, dynamic>.from(value);
+      if (_looksLikeEntry(nested)) {
+        return [
+          ReportEntry({
+            if (_firstText(nested, const [
+              'label',
+              'title',
+              'name',
+              'key',
+              'description',
+              'displayName',
+              'metric'
+            ]).isEmpty)
+              'label': entry.key,
+            ...nested,
+          })
+        ];
+      }
+      return _entriesFromMap(nested);
+    }
+    return [
+      ReportEntry({'label': entry.key, 'value': value})
+    ];
+  }).toList(growable: false);
+}
+
+bool _looksLikeEntry(Map<String, dynamic> map) {
+  const valueKeys = {
+    'formattedValue',
+    'displayValue',
+    'value',
+    'amount',
+    'count',
+    'percentage',
+    'total'
+  };
+  return map.keys.any(valueKeys.contains);
+}
+
+List<ReportSection> _sections(dynamic raw) {
+  if (raw is List) {
+    return raw
         .whereType<Map>()
         .map((item) => ReportSection.fromJson(Map<String, dynamic>.from(item)))
-        .toList(growable: false)
-    : const [];
+        .toList(growable: false);
+  }
+  if (raw is Map) {
+    return raw.entries.map((entry) {
+      final value = entry.value;
+      if (value is Map) {
+        final section = Map<String, dynamic>.from(value);
+        section.putIfAbsent('title', () => entry.key);
+        return ReportSection.fromJson(section);
+      }
+      return ReportSection(
+        title: entry.key.toString(),
+        entries: _entries(value),
+        fields: const {},
+      );
+    }).toList(growable: false);
+  }
+  return const [];
+}
 
 dynamic _firstValue(Map<String, dynamic> map, List<String> keys) {
   for (final key in keys) {
@@ -172,6 +256,7 @@ String? _nullableText(dynamic value) {
   final text = value?.toString().trim();
   return text == null || text.isEmpty ? null : text;
 }
+
 int _asInt(dynamic value) =>
     value is num ? value.toInt() : int.tryParse('$value') ?? 0;
 int? _asNullableInt(dynamic value) => value == null

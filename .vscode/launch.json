@@ -7,19 +7,31 @@
         {
             "name": "ott_mediahouse",
             "request": "launch",
-            "type": "dart"
+            "type": "dart",
+            "args": [
+                "--web-port",
+                "8080"
+            ]
         },
         {
             "name": "ott_mediahouse (profile mode)",
             "request": "launch",
             "type": "dart",
-            "flutterMode": "profile"
+            "flutterMode": "profile",
+            "args": [
+                "--web-port",
+                "8080"
+            ]
         },
         {
             "name": "ott_mediahouse (release mode)",
             "request": "launch",
             "type": "dart",
-            "flutterMode": "release"
+            "flutterMode": "release",
+            "args": [
+                "--web-port",
+                "8080"
+            ]
         }
     ]
 }

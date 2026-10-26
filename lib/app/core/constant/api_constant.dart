@@ -1,14 +1,26 @@
 class ApiConstant {
-  static const String baseUrl = "https://filmytell.in/ott2/";
+//  static const String baseUrl = "https://filmytell.com/ott/";
+  static const String baseUrl =
+      "http://ec2-13-201-27-141.ap-south-1.compute.amazonaws.com:8080/ott/";
+  static const String signedPlaybackUrl =
+      "${baseUrl}anti-piracy/playback/signed-url";
 
   static String twoStepLogin = "${baseUrl}auth/two-step/login";
   static String twoStepVerifyOtp = "${baseUrl}auth/two-step/verify-otp";
   static String refreshAuthToken = "${baseUrl}auth/refresh-token";
 
-  static String login(mobileNumber) =>
-      "${baseUrl}user/forgotPassword/findUserAndSendOTP?mobileNumber=$mobileNumber";
+  static const String forgotPasswordSendOtp =
+      "${baseUrl}user/forgotPassword/findUserAndSendOTP";
+  static const String forgotPasswordVerifyOtp = "${baseUrl}user/verifyOTP";
+  static const String forgotPasswordReset = "${baseUrl}user/resetPassword";
+
+  static String login(mobileNumber) => Uri.parse(forgotPasswordSendOtp).replace(
+      queryParameters: {'mobileNumber': mobileNumber.toString()}).toString();
   static String verifyOtp(mobileNumber, otp) =>
-      "${baseUrl}user/verifyOTP?mobileNumber=$mobileNumber&otp=$otp";
+      Uri.parse(forgotPasswordVerifyOtp).replace(queryParameters: {
+        'mobileNumber': mobileNumber.toString(),
+        'otp': otp.toString(),
+      }).toString();
   static String registration = '${baseUrl}user/RegisterUser';
   static String getAllUser = "${baseUrl}user/getAllActiveUsers";
   static String editUserById = "${baseUrl}user/updateUserBy/%7Bid%7D";
@@ -30,8 +42,34 @@ class ApiConstant {
       "${baseUrl}api/MediaHouse/getByStatus?status=$status";
   static String changeMediaHouseStatus(status, id) =>
       "${baseUrl}api/ApproveMediaHouseBy?mediaHouseId=$id&status=$status";
+  static String getMediaHouseById(id) =>
+      "${baseUrl}api/v2/mediaHouse/getMediaHouseById/$id";
   static String getMediaHouseDashboardCount(id) =>
-      "${baseUrl}api/admin/mediaHouseDashboardApi?mediaHouseId=$id";
+      "${baseUrl}api/v2/mediaHouse/getMediaHouseDashboardCountForAdmin/$id";
+  static String movieTransactionsByMediaHouse(
+    dynamic mediaHouseId, {
+    String? startDate,
+    String? endDate,
+    int? page,
+    int? size,
+  }) {
+    final params = <String, String>{};
+    if (page != null) params['page'] = '$page';
+    if (size != null) params['size'] = '$size';
+    if (startDate != null && startDate.trim().isNotEmpty) {
+      params['startDate'] = startDate.trim();
+    }
+    if (endDate != null && endDate.trim().isNotEmpty) {
+      params['endDate'] = endDate.trim();
+    }
+    if (params.isEmpty) {
+      return "${baseUrl}api/v2/user/movie-transactions-by-media-house/$mediaHouseId";
+    }
+    final query = params.entries
+        .map((item) => '${item.key}=${Uri.encodeQueryComponent(item.value)}')
+        .join('&');
+    return "${baseUrl}api/v2/user/movie-transactions-by-media-house/$mediaHouseId?$query";
+  }
   static String productionHouseNotifications({
     required int userId,
     required int mediaHouseId,
@@ -40,10 +78,52 @@ class ApiConstant {
   }) =>
       "${baseUrl}api/notifications/user/$userId/push?mediaHouseId=$mediaHouseId&pageNo=$pageNo&pageSize=$pageSize";
 
+  static String productionHouseWalletSummary(int productionHouseId) =>
+      "${baseUrl}api/production-house-wallet/$productionHouseId/summary";
+
+  static String productionHouseWalletTransactions(
+    int productionHouseId, {
+    required int page,
+    required int size,
+    String? search,
+    String? transactionType,
+    String? status,
+    String? entryType,
+    DateTime? fromDate,
+    DateTime? toDate,
+    double? minAmount,
+    double? maxAmount,
+  }) {
+    final params = <String, String>{'page': '$page', 'size': '$size'};
+    void add(String key, Object? value) {
+      final text = value?.toString().trim();
+      if (text != null && text.isNotEmpty) params[key] = text;
+    }
+
+    add('search', search);
+    add('transactionType', transactionType);
+    add('status', status);
+    add('entryType', entryType);
+    add('fromDate', fromDate?.toIso8601String().split('T').first);
+    add('toDate', toDate?.toIso8601String().split('T').first);
+    add('minAmount', minAmount);
+    add('maxAmount', maxAmount);
+    final query = params.entries
+        .map((item) => '${item.key}=${Uri.encodeQueryComponent(item.value)}')
+        .join('&');
+    return "${baseUrl}api/production-house-wallet/$productionHouseId/transactions?$query";
+  }
+
+  static String withdrawWalletAmount = "${baseUrl}wallet/withdraw";
+  static String walletHistory(int id) => "${baseUrl}wallet/history/$id";
+
   static String saveVideo = '${baseUrl}api/addContent';
   static String saveCast = '${baseUrl}api/saveCast';
+  static String updateCast = '${baseUrl}api/Cast/Update';
   static String getCastByContentId(int contentId) =>
       "${baseUrl}api/Cast/getByContentId?contentId=$contentId";
+  static String getCastByShortId(int shortId) =>
+      "${baseUrl}api/Cast/getByShortId?shortId=$shortId";
   static String getCastByContentIdAndSeasonId({
     required int contentId,
     required int seasonId,
@@ -127,6 +207,7 @@ class ApiConstant {
   static String getUserAndRevenueGraph(startDate, endEnd, promoterId) =>
       "${baseUrl}api/admin/userOnboardedGraphByPromoterId2?start_date=$startDate&end_date=$endEnd&promoterId=$promoterId";
 
+  static String uploadFile = "${baseUrl}api/other/upload-file";
   static String uploadImg = "${baseUrl}api/documents/upload";
   static String uploadContentImg = "${baseUrl}api/documents/upload";
   static String uploadDocument = "${baseUrl}api/documents/upload";
@@ -135,6 +216,13 @@ class ApiConstant {
   static String uploadSubtitle = "${baseUrl}api/video-metadata/subtitle/upload";
   static String uploadAudioMetadata =
       "${baseUrl}api/video-metadata/audio/extract";
+  static String multipartInitiate = "${baseUrl}api/video/multipart/initiate";
+  static String multipartPresign = "${baseUrl}api/video/multipart/presign";
+  static String multipartStatus(dynamic uploadSessionId) =>
+      "${baseUrl}api/video/multipart/$uploadSessionId/status";
+  static String multipartComplete = "${baseUrl}api/video/multipart/complete";
+  static String multipartAbort(dynamic uploadSessionId) =>
+      "${baseUrl}api/video/multipart/$uploadSessionId";
   static String allLanguagesWithGrouping = "${baseUrl}api/all/withGrouping";
   static String sendNotification = "${baseUrl}api/notifications/send";
   static String scheduleNotification = "${baseUrl}api/notifications/schedule";
@@ -195,13 +283,47 @@ class ApiConstant {
       "${baseUrl}api/TicketRaised/user/$userId";
   static String getRaisedTicketByFlag(isResolved, userId) =>
       "${baseUrl}api/TicketRaised/userIsResolved?userId=$userId&isResolved=$isResolved";
+  static String searchAndFilterTickets({
+    String role = "MEDIA_HOUSE",
+    String? keyword,
+    String? status,
+    String? startDate,
+    String? endDate,
+  }) {
+    final params = <String, String>{'role': role};
+    if (keyword != null && keyword.trim().isNotEmpty) {
+      params['keyword'] = keyword.trim();
+    }
+    if (status != null && status.trim().isNotEmpty) {
+      params['status'] = status.trim();
+    }
+    if (startDate != null && startDate.trim().isNotEmpty) {
+      params['startDate'] = startDate.trim();
+    }
+    if (endDate != null && endDate.trim().isNotEmpty) {
+      params['endDate'] = endDate.trim();
+    }
+    final query = params.entries
+        .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
+        .join('&');
+    return "${baseUrl}api/TicketRaised/searchAndFilter?$query";
+  }
+
+  static String weeklySettlementDataForMediaHouse(dynamic userId) =>
+      "${baseUrl}api/v2/settlement/weeklySettelementDataForMediaHouse/$userId";
+  static String weeklySettlementByMediaHouseAlias(dynamic id) =>
+      "${baseUrl}api/settelment/mediaHouse/$id";
+  static String weeklySettlementReportById(dynamic settlementId) =>
+      "${baseUrl}api/admin/weekly-settlement-report/$settlementId";
+  static String transactionSettlementReport(dynamic transactionId) =>
+      "${baseUrl}api/admin/transaction-settlement-report/$transactionId";
 
   static String mediaHouseSettlements(
     int mediaHouseId, {
     int page = 0,
     int size = 10,
   }) =>
-      "${baseUrl}ott/api/settlements/media-house/$mediaHouseId?page=$page&size=$size";
+      "${baseUrl}api/settlements/media-house/$mediaHouseId?page=$page&size=$size";
 
   static String mediaHouseWeeklySettlementReport(
     int mediaHouseId, {
@@ -211,7 +333,7 @@ class ApiConstant {
     final query = reference == null || reference.isEmpty
         ? ''
         : '?settlementBatchReference=${Uri.encodeQueryComponent(reference)}';
-    return "${baseUrl}ott/api/media-house/weekly-settlement-report/$mediaHouseId$query";
+    return "${baseUrl}api/media-house/weekly-settlement-report/$mediaHouseId$query";
   }
 
   static String topRevenueContentGraph(
@@ -507,7 +629,131 @@ class ApiConstant {
     return "${baseUrl}api/transactionDashboard/mediaHouse/graph?$query";
   }
 
+  static String revenueGraphByMediaHouseV2({
+    required dynamic mediaId,
+    required String startDate,
+    required String endDate,
+    String? type,
+  }) {
+    final params = <String, String>{
+      'mediaId': '$mediaId',
+      'startDate': startDate,
+      'endDate': endDate,
+    };
+    if (type != null && type.trim().isNotEmpty) {
+      params['type'] = type.trim();
+    }
+    final query = params.entries
+        .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
+        .join('&');
+    return "${baseUrl}api/v2/mediaHouse/revenueGraphByMediaHouse?$query";
+  }
+
+  static String contentRevenueBreakdown(
+    dynamic mediaHouseId, {
+    int? contentId,
+    String? startDate,
+    String? endDate,
+  }) {
+    final params = <String, String>{};
+    if (contentId != null) params['contentId'] = '$contentId';
+    if (startDate != null && startDate.trim().isNotEmpty) {
+      params['startDate'] = startDate.trim();
+    }
+    if (endDate != null && endDate.trim().isNotEmpty) {
+      params['endDate'] = endDate.trim();
+    }
+    final query = params.isEmpty
+        ? ''
+        : '?${params.entries.map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}').join('&')}';
+    return "${baseUrl}api/v1/analytics/production-house/$mediaHouseId/content-revenue$query";
+  }
+
+  static String purchasedUsersByContentId({
+    required int contentId,
+    String? startDate,
+    String? endDate,
+    String? state,
+    String? city,
+    int page = 0,
+    int size = 10,
+  }) {
+    final params = <String, String>{
+      'contentId': '$contentId',
+      'page': '$page',
+      'size': '$size',
+    };
+    if (startDate != null && startDate.trim().isNotEmpty) {
+      params['startDate'] = startDate.trim();
+    }
+    if (endDate != null && endDate.trim().isNotEmpty) {
+      params['endDate'] = endDate.trim();
+    }
+    if (state != null && state.trim().isNotEmpty) {
+      params['state'] = state.trim();
+    }
+    if (city != null && city.trim().isNotEmpty) {
+      params['city'] = city.trim();
+    }
+    final query = params.entries
+        .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
+        .join('&');
+    return "${baseUrl}api/contentList/getUsersByContentId?$query";
+  }
+
+  static String audienceLocationWise({
+    required int contentId,
+    String? fromDate,
+    String? toDate,
+  }) {
+    final params = <String, String>{'contentId': '$contentId'};
+    if (fromDate != null && fromDate.trim().isNotEmpty) {
+      params['fromDate'] = fromDate.trim();
+    }
+    if (toDate != null && toDate.trim().isNotEmpty) {
+      params['toDate'] = toDate.trim();
+    }
+    final query = params.entries
+        .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
+        .join('&');
+    return "${baseUrl}ott/admin/analytics/location-wise?$query";
+  }
+
+  static String audienceAgeWise({
+    required int contentId,
+    String? fromDate,
+    String? toDate,
+  }) {
+    final params = <String, String>{'contentId': '$contentId'};
+    if (fromDate != null && fromDate.trim().isNotEmpty) {
+      params['fromDate'] = fromDate.trim();
+    }
+    if (toDate != null && toDate.trim().isNotEmpty) {
+      params['toDate'] = toDate.trim();
+    }
+    final query = params.entries
+        .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
+        .join('&');
+    return "${baseUrl}ott/admin/analytics/age-wise-views?$query";
+  }
+
   //shorts
+  static String shortsByMediaHouse(
+    dynamic mediaHouseId, {
+    int page = 0,
+    int size = 10,
+    String? keyword,
+  }) {
+    final params = <String, String>{'page': '$page', 'size': '$size'};
+    if (keyword != null && keyword.trim().isNotEmpty) {
+      params['keyword'] = keyword.trim();
+    }
+    final query = params.entries
+        .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
+        .join('&');
+    return "${baseUrl}api/v2/shorts/by-media-house/$mediaHouseId?$query";
+  }
+
   static String shortsMaster(
     id, {
     String keyword = '',
@@ -515,6 +761,8 @@ class ApiConstant {
     int size = 10,
   }) =>
       "${baseUrl}api/shortsMaster/by-mediahouse/$id?keyword=${Uri.encodeQueryComponent(keyword)}&page=$page&size=$size";
+  static String shortsMasterForAdmin(dynamic shortMasterId) =>
+      "${baseUrl}api/shortsMaster/forAdmin/$shortMasterId";
   static String shortsTrending({
     String? lang,
     int page = 0,

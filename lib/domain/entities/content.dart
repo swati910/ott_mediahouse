@@ -18,7 +18,11 @@ class Content {
   List<String>? genreList;
   List<String>? directorList;
   int? views;
+  int? totalPurchase;
   double? totalRevenue;
+  double? mediaHouseRevenue;
+  double? mediaHouseGrossRevenue;
+  double? mediaHouseNetRevenue;
   String? ageRating;
   List<String>? posterUrlList;
   String? teaserUrl;
@@ -67,7 +71,11 @@ class Content {
     this.genreList,
     this.directorList,
     this.views,
+    this.totalPurchase,
     this.totalRevenue,
+    this.mediaHouseRevenue,
+    this.mediaHouseGrossRevenue,
+    this.mediaHouseNetRevenue,
     this.ageRating,
     this.posterUrlList,
     this.teaserUrl,
@@ -117,7 +125,11 @@ class Content {
     genreList: json["genreList"] == null ? [] : List<String>.from(json["genreList"]!.map((x) => x)),
     directorList: json["directorList"] == null ? [] : List<String>.from(json["directorList"]!.map((x) => x)),
     views: _asInt(json["views"]),
+    totalPurchase: _asInt(json["totalPurchase"]),
     totalRevenue: json["totalRevenue"]?.toDouble(),
+    mediaHouseRevenue: _asDouble(json["mediaHouseRevenue"]),
+    mediaHouseGrossRevenue: _asDouble(json["mediaHouseGrossRevenue"]),
+    mediaHouseNetRevenue: _asDouble(json["mediaHouseNetRevenue"]),
     ageRating: json["ageRating"],
     posterUrlList: json["posterUrlList"] == null ? [] : List<String>.from(json["posterUrlList"]!.map((x) => x)),
     teaserUrl: json["teaserUrl"],
@@ -167,7 +179,11 @@ class Content {
     "genreList": genreList == null ? [] : List<dynamic>.from(genreList!.map((x) => x)),
     "directorList": directorList == null ? [] : List<dynamic>.from(directorList!.map((x) => x)),
     "views": views,
+    "totalPurchase": totalPurchase,
     "totalRevenue": totalRevenue,
+    "mediaHouseRevenue": mediaHouseRevenue,
+    "mediaHouseGrossRevenue": mediaHouseGrossRevenue,
+    "mediaHouseNetRevenue": mediaHouseNetRevenue,
     "ageRating": ageRating,
     "posterUrlList": posterUrlList == null ? [] : List<dynamic>.from(posterUrlList!.map((x) => x)),
     "teaserUrl": teaserUrl,
@@ -203,6 +219,18 @@ class Content {
     "seasonId": seasonId,
     "episodeId": episodeId
   };
+
+  double get effectiveMediaHouseNetRevenue =>
+      mediaHouseNetRevenue ?? mediaHouseRevenue ?? totalRevenue ?? 0.0;
+
+  double get effectiveMediaHouseGrossRevenue =>
+      mediaHouseGrossRevenue ?? mediaHouseRevenue ?? totalRevenue ?? 0.0;
+}
+
+double? _asDouble(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  return double.tryParse(value.toString());
 }
 
 class Availability {

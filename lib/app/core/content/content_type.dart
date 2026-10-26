@@ -19,6 +19,8 @@ abstract final class ContentTypeValue {
     return type == movie || type == shortFilm;
   }
 
+  static bool isShortFilm(String? value) => normalize(value) == shortFilm;
+
   static String displayLabel(String? value) {
     switch (normalize(value)) {
       case movie:

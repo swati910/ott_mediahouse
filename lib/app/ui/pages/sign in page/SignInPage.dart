@@ -3,11 +3,13 @@ import 'package:media_house/app/core/constant/image_constant.dart';
 import 'package:media_house/app/provider/themeProvider.dart';
 import 'package:media_house/app/ui/pages/sign%20in%20page/otp_screen.dart';
 import 'package:media_house/app/widget/show_toast.dart';
+import 'package:media_house/app/core/utils/user_message.dart';
 import 'package:media_house/device/utils/ResponsiveWidget.dart';
 import 'package:provider/provider.dart';
 
 import '../../../provider/user_provider.dart';
 import '../sign up page/SignUpPage.dart';
+import 'forgot_password_pages.dart';
 
 class SignInPage extends StatefulWidget {
   const SignInPage({super.key});
@@ -36,37 +38,53 @@ class _SignInPageState extends State<SignInPage> {
 
     return Scaffold(
       backgroundColor: selectedThemeData.scaffoldBackgroundColor,
-      body: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          SizedBox(height: ResponsiveWidget.isMobile(context) ? 35 : 60),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SizedBox(
-                height: ResponsiveWidget.isMobile(context) ? 120 : 200,
-                child: Hero(
-                  tag: "logo",
-                  child: ClipRRect(
-                    borderRadius: BorderRadiusGeometry.circular(25),
-                    child: Image.asset(
-                      ImageConstant.logo,
-                      fit: BoxFit.contain,
-                    ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: 20 + MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: (constraints.maxHeight -
+                        40 -
+                        MediaQuery.of(context).viewInsets.bottom)
+                    .clamp(0.0, double.infinity),
+              ),
+              child: Center(
+                child: SizedBox(
+                  width: ResponsiveWidget.isMobile(context)
+                      ? double.infinity
+                      : 400,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        height:
+                            ResponsiveWidget.isMobile(context) ? 100 : 150,
+                        child: Hero(
+                          tag: "logo",
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(25),
+                            child: Image.asset(
+                              ImageConstant.logo,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      loginCard(),
+                    ],
                   ),
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 50),
-          Center(
-            child: SizedBox(
-              width: ResponsiveWidget.isMobile(context) ? double.infinity : 400,
-              child: loginCard(),
             ),
-          ),
-          const SizedBox(height: 200),
-        ],
+          );
+        },
       ),
     );
   }
@@ -114,12 +132,13 @@ class _SignInPageState extends State<SignInPage> {
                 controller: passwordController,
                 decoration: InputDecoration(
                   labelText: 'Password',
-                  border: const OutlineInputBorder(),
+                  border: OutlineInputBorder(),
                   suffixIcon: IconButton(
                     icon: Icon(
                       _obscurePassword
                           ? Icons.visibility_off
                           : Icons.visibility,
+                      color: selectedThemeData.canvasColor,
                     ),
                     onPressed: () {
                       setState(() {
@@ -132,7 +151,20 @@ class _SignInPageState extends State<SignInPage> {
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _isLoading ? null : _handleLogin(context),
               ),
-              const SizedBox(height: 20),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: _isLoading
+                      ? null
+                      : () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const ForgotPasswordPage(),
+                            ),
+                          ),
+                  child: const Text('Forgot Password?'),
+                ),
+              ),
+              const SizedBox(height: 8),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: selectedThemeData.primaryColor,
@@ -211,13 +243,21 @@ class _SignInPageState extends State<SignInPage> {
     if (!context.mounted) {
       return;
     }
+    setState(() {
+      _isLoading = false;
+    });
 
     if (result['success'] == true) {
       final data = result['data'];
       final sentTo = data is Map<String, dynamic>
           ? (data['otpSentTo'] ?? data['username'] ?? username).toString()
           : username;
-      CustomToast.show(context, 'OTP sent to $sentTo', isSuccess: true);
+      CustomToast.show(
+          context,
+          UserMessage.resolve(
+              apiMessage: result['message']?.toString(),
+              fallbackMessage: 'OTP sent to $sentTo.'),
+          isSuccess: true);
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -228,13 +268,13 @@ class _SignInPageState extends State<SignInPage> {
         ),
       );
     } else {
-      CustomToast.show(context, 'Failure: ${result['message']}',
+      CustomToast.show(
+          context,
+          UserMessage.resolve(
+              apiMessage: result['message']?.toString(),
+              fallbackMessage: 'Unable to sign in. Please try again.'),
           isSuccess: false);
     }
-
-    setState(() {
-      _isLoading = false;
-    });
   }
 
   void _navigateToSignIn() {

@@ -4,6 +4,8 @@ import 'package:media_house/app/core/storage/portal_cache_service.dart';
 import 'package:media_house/app/core/storage/storage_keys.dart';
 import 'package:media_house/app/core/storage/storage_service.dart';
 import 'package:media_house/data/models/response/media_house_settlement.dart';
+import 'package:media_house/data/models/response/weekly_settlement_report.dart';
+import 'package:media_house/data/models/response/transaction_settlement_audit_response.dart';
 import 'package:media_house/data/services/settlement_service.dart';
 
 class SettelementProvider extends ChangeNotifier {
@@ -38,6 +40,23 @@ class SettelementProvider extends ChangeNotifier {
   bool get showingCachedData => _showingCachedData;
   DateTime? _lastUpdated;
   DateTime? get lastUpdated => _lastUpdated;
+
+  // Transaction Settlement Audit state
+  TransactionSettlementAuditResponse? _selectedTransactionAudit;
+  TransactionSettlementAuditResponse? get selectedTransactionAudit =>
+      _selectedTransactionAudit;
+  bool _isLoadingAudit = false;
+  bool get isLoadingAudit => _isLoadingAudit;
+  String? _auditErrorMessage;
+  String? get auditErrorMessage => _auditErrorMessage;
+
+  // Weekly Settlement Report state
+  WeeklySettlementReportResponse? _weeklyReport;
+  WeeklySettlementReportResponse? get weeklyReport => _weeklyReport;
+  bool _isLoadingWeeklyReport = false;
+  bool get isLoadingWeeklyReport => _isLoadingWeeklyReport;
+  String? _weeklyReportError;
+  String? get weeklyReportError => _weeklyReportError;
 
   Future<void> fetchForCurrentMediaHouse({int? page, int? size}) async {
     final user = await LocalSharePreferences().getUser();
@@ -92,12 +111,14 @@ class SettelementProvider extends ChangeNotifier {
             .map((item) => item.settlementId)
             .whereType<String>()
             .toSet();
+        _settlements.clear();
         _settlements = [
           ..._settlements,
           ...data.content.where((item) =>
               item.settlementId == null || seen.add(item.settlementId!)),
         ];
       } else {
+        _settlements.clear();
         _settlements = data.content;
       }
       _page = data.number;
@@ -127,6 +148,46 @@ class SettelementProvider extends ChangeNotifier {
         _isLoadingMore = false;
         notifyListeners();
       }
+    }
+  }
+
+  Future<TransactionSettlementAuditResponse?> fetchTransactionSettlementAudit(
+      dynamic transactionId) async {
+    _isLoadingAudit = true;
+    _auditErrorMessage = null;
+    _selectedTransactionAudit = null;
+    notifyListeners();
+    try {
+      final res = await _service.getTransactionSettlementReport(transactionId);
+      _selectedTransactionAudit = res;
+      _isLoadingAudit = false;
+      notifyListeners();
+      return res;
+    } catch (e) {
+      _auditErrorMessage = e.toString();
+      _isLoadingAudit = false;
+      notifyListeners();
+      return null;
+    }
+  }
+
+  Future<WeeklySettlementReportResponse?> fetchWeeklySettlementReportById(
+      dynamic settlementId) async {
+    _isLoadingWeeklyReport = true;
+    _weeklyReportError = null;
+    _weeklyReport = null;
+    notifyListeners();
+    try {
+      final res = await _service.getWeeklySettlementReportById(settlementId);
+      _weeklyReport = res;
+      _isLoadingWeeklyReport = false;
+      notifyListeners();
+      return res;
+    } catch (e) {
+      _weeklyReportError = e.toString();
+      _isLoadingWeeklyReport = false;
+      notifyListeners();
+      return null;
     }
   }
 

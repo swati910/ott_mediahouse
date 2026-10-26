@@ -15,6 +15,7 @@ import '../../../../domain/entities/content.dart';
 import '../../../../data/models/shorts.dart';
 import '../../../core/utils/sharepreferences.dart';
 import '../../../core/content/content_type.dart';
+import '../../../core/utils/currency_formatter.dart';
 
 class ReleasedContentPage extends StatefulWidget {
   const ReleasedContentPage({super.key});
@@ -666,16 +667,20 @@ class _ReleasedContentPageState extends State<ReleasedContentPage> {
                           _formatMoney(movie.price),
                         ),
                         _releaseMetric(
+                          Icons.account_balance_wallet_outlined,
+                          'Gross ${_formatRevenue(movie.effectiveMediaHouseGrossRevenue)}',
+                        ),
+                        _releaseMetric(
                           Icons.trending_up_rounded,
-                          _formatMoney(movie.totalRevenue),
+                          'Net ${_formatRevenue(movie.effectiveMediaHouseNetRevenue)}',
+                        ),
+                        _releaseMetric(
+                          Icons.money,
+                          _compact(movie.ratingCount),
                         ),
                         _releaseMetric(
                           Icons.visibility_outlined,
                           _compact(movie.views),
-                        ),
-                        _releaseMetric(
-                          Icons.thumb_up_alt_outlined,
-                          _compact(movie.ratingCount),
                         ),
                       ],
                     ),
@@ -857,17 +862,12 @@ class _ReleasedContentPageState extends State<ReleasedContentPage> {
     return '${date.day.toString().padLeft(2, '0')} ${months[date.month - 1]} ${date.year}';
   }
 
-  String _formatMoney(dynamic value) {
-    final number = _toNum(value);
-    if (number <= 0) return '₹0';
-    return '₹${_compact(number)}';
-  }
+  String _formatMoney(dynamic value) => formatCurrency(value);
+
+  String _formatRevenue(dynamic value) => formatCurrency(value);
 
   String _compact(dynamic value) {
     final number = _toNum(value);
-    if (number >= 10000000) {
-      return '${(number / 10000000).toStringAsFixed(1)}Cr';
-    }
     if (number >= 100000) {
       return '${(number / 100000).toStringAsFixed(1)}L';
     }

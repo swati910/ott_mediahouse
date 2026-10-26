@@ -104,8 +104,8 @@ class AddShortMaster {
     void addCast(StateSetter setState) {
       final name = castNameCtrl.text.trim();
       final role = castRoleCtrl.text.trim();
-      if (name.isEmpty || role.isEmpty || castImageUrl == null) {
-        showGlobalSnack("Cast name, role and image are required");
+      if (name.isEmpty || role.isEmpty) {
+        showGlobalSnack("Cast name and role are required.");
         return;
       }
 
@@ -113,7 +113,7 @@ class AddShortMaster {
         "name": name,
         "role": role,
         "description": castDescriptionCtrl.text.trim(),
-        "image": castImageUrl!,
+        "image": castImageUrl ?? '',
       });
       clearCastDraft(setState);
     }
@@ -121,8 +121,8 @@ class AddShortMaster {
     void addCrew(StateSetter setState) {
       final crewName = crewNameCtrl.text.trim();
       final crewRole = crewRoleCtrl.text.trim();
-      if (crewName.isEmpty || crewRole.isEmpty || crewImageUrl == null) {
-        showGlobalSnack("Crew name, role and image are required");
+      if (crewName.isEmpty || crewRole.isEmpty) {
+        showGlobalSnack("Crew name and role are required.");
         return;
       }
 
@@ -131,7 +131,7 @@ class AddShortMaster {
           "name": crewName,
           "role": crewRole,
           "description": "",
-          "image": crewImageUrl!,
+          "image": crewImageUrl ?? '',
         });
         crewNameCtrl.clear();
         crewRoleCtrl.clear();
@@ -938,12 +938,14 @@ class AddShortMaster {
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           child: StatefulBuilder(
             builder: (dialogContext, setState) {
-              return Container(
-                width: screenWidth > 720 ? 620 : screenWidth * 0.9,
-                decoration: BoxDecoration(
-                  color: theme.cardColor,
-                  borderRadius: BorderRadius.circular(20),
-                ),
+              return WillPopScope(
+                onWillPop: () async => !isSubmitting,
+                child: Container(
+                  width: screenWidth > 720 ? 620 : screenWidth * 0.9,
+                  decoration: BoxDecoration(
+                    color: theme.cardColor,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
                 padding: const EdgeInsets.all(20),
                 child: SingleChildScrollView(
                   child: Column(
@@ -1080,95 +1082,102 @@ class AddShortMaster {
 
                                 setState(() => isSubmitting = true);
 
-                                final localSharePreferences =
-                                    LocalSharePreferences();
-                                final mediaHouse =
-                                    await localSharePreferences.getMediaHouse();
+                                try {
+                                  final localSharePreferences =
+                                      LocalSharePreferences();
+                                  final mediaHouse =
+                                      await localSharePreferences.getMediaHouse();
 
-                                if (mediaHouse == null) {
-                                  setState(() => isSubmitting = false);
-                                  showGlobalSnack(
-                                      "Sorry, Production House is not available.");
-                                  return;
-                                }
+                                  if (mediaHouse == null) {
+                                    showGlobalSnack(
+                                        "Sorry, Production House is not available.");
+                                    return;
+                                  }
 
-                                final nowIso =
-                                    DateTime.now().toUtc().toIso8601String();
-                                final body = {
-                                  "approvalStatus": "PENDING",
-                                  "approvedDateTime": nowIso,
-                                  "category": categoryCtrl.text.trim(),
-                                  "coinsPerPart": int.parse(coinsCtrl.text),
-                                  "creatorName": creatorCtrl.text.trim(),
-                                  "crewList": crewList
-                                      .map((crew) => crew["name"] ?? "")
-                                      .where((name) => name.trim().isNotEmpty)
-                                      .toList(),
-                                  "description": descCtrl.text.trim(),
-                                  "isTrending": isTrending,
-                                  "languageList": selectedLanguages
-                                      .map(
-                                        (language) => {
-                                          "fileUrl": "",
-                                          "language": language,
-                                        },
-                                      )
-                                      .toList(),
-                                  "likeCount": 0,
-                                  "mediaHouseId": mediaHouse.id,
-                                  "posterUrl": uploadedImageUrl,
-                                  "rentlDuration":
-                                      rentalDurationCtrl.text.trim(),
-                                  "title": titleCtrl.text.trim(),
-                                  "totalParts": int.parse(partsCtrl.text),
-                                  "uploadDateTime": nowIso,
-                                  "viewCount": 0,
-                                };
+                                  final nowIso =
+                                      DateTime.now().toUtc().toIso8601String();
+                                  final body = {
+                                    "approvalStatus": "PENDING",
+                                    "approvedDateTime": nowIso,
+                                    "category": categoryCtrl.text.trim(),
+                                    "coinsPerPart": int.parse(coinsCtrl.text),
+                                    "creatorName": creatorCtrl.text.trim(),
+                                    "crewList": crewList
+                                        .map((crew) => crew["name"] ?? "")
+                                        .where((name) => name.trim().isNotEmpty)
+                                        .toList(),
+                                    "description": descCtrl.text.trim(),
+                                    "isTrending": isTrending,
+                                    "languageList": selectedLanguages
+                                        .map(
+                                          (language) => {
+                                            "fileUrl": "",
+                                            "language": language,
+                                          },
+                                        )
+                                        .toList(),
+                                    "likeCount": 0,
+                                    "mediaHouseId": mediaHouse.id,
+                                    "posterUrl": uploadedImageUrl,
+                                    "rentlDuration":
+                                        rentalDurationCtrl.text.trim(),
+                                    "title": titleCtrl.text.trim(),
+                                    "totalParts": int.parse(partsCtrl.text),
+                                    "uploadDateTime": nowIso,
+                                    "viewCount": 0,
+                                  };
 
-                                final createdShort =
-                                    await provider.createShortMaster(body);
+                                  final createdShort =
+                                      await provider.createShortMaster(body);
 
-                                if (!dialogContext.mounted) return;
+                                  if (!dialogContext.mounted) return;
 
-                                if (createdShort == null) {
-                                  setState(() => isSubmitting = false);
-                                  showGlobalSnack(
-                                    "Failed to add short. Check console response.",
+                                  if (createdShort == null) {
+                                    showGlobalSnack(
+                                      "Failed to add short. Check console response.",
+                                    );
+                                    return;
+                                  }
+
+                                  final shortId = createdShort.id;
+                                  if (shortId == null || shortId <= 0) {
+                                    showGlobalSnack(
+                                      "Short saved but short ID not received for cast and crew save.",
+                                    );
+                                    return;
+                                  }
+
+                                  final members = [
+                                    ...castList,
+                                    ...crewList,
+                                  ];
+                                  final castCrewSaved =
+                                      await provider.saveShortCastCrewMembers(
+                                    shortId: shortId,
+                                    members: members,
                                   );
-                                  return;
-                                }
 
-                                final shortId = createdShort.id;
-                                if (shortId == null || shortId <= 0) {
-                                  setState(() => isSubmitting = false);
+                                  if (!dialogContext.mounted) return;
+
+                                  if (!castCrewSaved) {
+                                    showGlobalSnack(
+                                      "Short saved, but cast and crew save failed.",
+                                    );
+                                    return;
+                                  }
+
+                                  Navigator.of(dialogContext).pop(true);
+                                  showGlobalSnack("Short added successfully");
+                                } catch (e) {
+                                  debugPrint("Add short failed: $e");
                                   showGlobalSnack(
-                                    "Short saved but short ID not received for cast and crew save.",
+                                    "Failed to add short. Please try again.",
                                   );
-                                  return;
+                                } finally {
+                                  if (dialogContext.mounted) {
+                                    setState(() => isSubmitting = false);
+                                  }
                                 }
-
-                                final members = [
-                                  ...castList,
-                                  ...crewList,
-                                ];
-                                final castCrewSaved =
-                                    await provider.saveShortCastCrewMembers(
-                                  shortId: shortId,
-                                  members: members,
-                                );
-
-                                if (!dialogContext.mounted) return;
-                                setState(() => isSubmitting = false);
-
-                                if (!castCrewSaved) {
-                                  showGlobalSnack(
-                                    "Short saved, but cast and crew save failed.",
-                                  );
-                                  return;
-                                }
-
-                                Navigator.of(dialogContext).pop(true);
-                                showGlobalSnack("Short added successfully");
                               },
                         child: isSubmitting
                             ? const SizedBox(
@@ -1187,8 +1196,9 @@ class AddShortMaster {
                     ],
                   ),
                 ),
-              );
-            },
+              ),
+            );
+          },
           ),
         );
       },

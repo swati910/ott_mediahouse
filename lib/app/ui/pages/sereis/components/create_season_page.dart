@@ -296,8 +296,8 @@ class _AddSeasonDialogState extends State<AddSeasonDialog> {
   void _addCastMember() {
     final name = castNameCtrl.text.trim();
     final role = castRoleCtrl.text.trim();
-    if (name.isEmpty || role.isEmpty || castImageUrl.trim().isEmpty) {
-      showGlobalSnack("Cast name, role and image are required");
+    if (name.isEmpty || role.isEmpty) {
+      showGlobalSnack("Cast name and role are required.");
       return;
     }
     setState(() {
@@ -320,8 +320,8 @@ class _AddSeasonDialogState extends State<AddSeasonDialog> {
   void _addCrewMember() {
     final name = crewNameCtrl.text.trim();
     final role = crewRoleCtrl.text.trim();
-    if (name.isEmpty || role.isEmpty || crewImageUrl.trim().isEmpty) {
-      showGlobalSnack("Crew name, role and image are required");
+    if (name.isEmpty || role.isEmpty) {
+      showGlobalSnack("Crew name and role are required.");
       return;
     }
     setState(() {

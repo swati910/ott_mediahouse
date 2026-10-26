@@ -16,10 +16,11 @@ import 'package:provider/provider.dart';
 import 'package:universal_html/html.dart' as html;
 
 import '../../../../provider/themeProvider.dart';
+import '../../../widget/multipart_upload_progress_widget.dart';
 
 class EditEpisodeDialog extends StatefulWidget {
   final Episode episode;
-  final int seasonPrice;
+  final num seasonPrice;
 
   const EditEpisodeDialog({
     super.key,
@@ -413,7 +414,9 @@ class _EditEpisodeDialogState extends State<EditEpisodeDialog> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Poster upload failed: $error')),
+          const SnackBar(
+            content: Text('Unable to upload the poster. Please try again.'),
+          ),
         );
       }
     } finally {
@@ -498,6 +501,16 @@ class _EditEpisodeDialogState extends State<EditEpisodeDialog> {
           LinearProgressIndicator(
             value: provider.movieUploadProgress.clamp(0, 1),
           ),
+        if (provider.getEpisodeProgressInfo('episode_${widget.episode.id}') != null) ...[
+          const SizedBox(height: 10),
+          MultipartUploadProgressWidget(
+            info: provider.getEpisodeProgressInfo('episode_${widget.episode.id}')!,
+            onPause: () => provider.pauseEpisodeMultipartUpload('episode_${widget.episode.id}'),
+            onResume: () => provider.resumeEpisodeMultipartUpload('episode_${widget.episode.id}'),
+            onRetry: () => provider.retryEpisodeMultipartUpload('episode_${widget.episode.id}'),
+            onAbort: () => provider.abortEpisodeMultipartUpload('episode_${widget.episode.id}'),
+          ),
+        ],
       ],
     );
   }
@@ -508,7 +521,7 @@ class _EditEpisodeDialogState extends State<EditEpisodeDialog> {
     final title = _titleCtrl.text.trim();
     final episodeAmount = _followSeasonPrice
         ? widget.seasonPrice
-        : int.parse(_manualPriceCtrl.text.trim());
+        : (num.tryParse(_manualPriceCtrl.text.trim()) ?? 0);
     final body = <String, dynamic>{
       "amount": episodeAmount,
       "title": title,

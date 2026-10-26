@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:media_house/app/ui/pages/Splash%20screen/SplashScreen.dart';
 import 'package:media_house/app/ui/pages/analytics_page/analyticsPage.dart';
-import 'package:media_house/app/ui/pages/dashboard_page/dashboardpage.dart';
 import 'package:media_house/app/ui/pages/document_page/documentpage.dart';
 import 'package:media_house/app/ui/pages/help%20support%20page/helpDesk.dart';
 import 'package:media_house/app/ui/pages/allContent_page/allContent.dart';
 import 'package:media_house/app/ui/pages/profile%20page/component/EditProfilePage.dart';
 import 'package:media_house/app/ui/pages/released_content_page/released_content.dart';
 import 'package:media_house/app/ui/pages/settlemet_page/SettlementPage.dart';
+import 'package:media_house/app/ui/pages/wallet_page/wallet_page.dart';
 import 'package:media_house/app/ui/pages/sign%20in%20page/SignInPage.dart';
+import 'package:media_house/app/ui/pages/sign%20in%20page/forgot_password_pages.dart';
 
 import '../../ui/NavigationPage.dart';
 import '../../ui/pages/profile page/ProfilePage.dart';
@@ -28,7 +29,7 @@ class RouteGenerator {
         return buildRoute(NavigationPage(), settings: settings);
 
       case AppRoutes.forgotPassword:
-        return buildRoute(DashboardPage(), settings: settings);
+        return buildRoute(const ForgotPasswordPage(), settings: settings);
 
       case AppRoutes.profile:
         return buildRoute(ProfilePage(), settings: settings);
@@ -44,6 +45,9 @@ class RouteGenerator {
 
       case AppRoutes.settlement:
         return buildRoute(SettlementPage(), settings: settings);
+
+      case AppRoutes.wallet:
+        return buildRoute(WalletPage(), settings: settings);
 
       case AppRoutes.helpSupport:
         return buildRoute(HelpDeskPage(), settings: settings);

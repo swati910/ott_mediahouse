@@ -31,11 +31,24 @@ class MediaHouse {
   dynamic bankName;
   dynamic accountHolderName;
   dynamic firmType;
+  String? designation;
+  String? gstNumber;
+  String? authorizedPerson;
+  String? companyVerificationStatus;
+  dynamic companyVerificationSubmittedAt;
+  dynamic companyVerificationReviewedAt;
+  String? companyVerificationRejectionRemarks;
+  String? companyVerificationAdminRemark;
+  int? directorId;
+  int? ceoId;
   User? user;
   User? director;
   User? ceo;
   Location? location;
   dynamic totalViews;
+  dynamic mediaHouseRevenue;
+  dynamic totalRevenue;
+  dynamic adminRevenue;
   bool? active;
 
   MediaHouse({
@@ -68,44 +81,69 @@ class MediaHouse {
     this.bankName,
     this.accountHolderName,
     this.firmType,
+    this.designation,
+    this.gstNumber,
+    this.authorizedPerson,
+    this.companyVerificationStatus,
+    this.companyVerificationSubmittedAt,
+    this.companyVerificationReviewedAt,
+    this.companyVerificationRejectionRemarks,
+    this.companyVerificationAdminRemark,
+    this.directorId,
+    this.ceoId,
     this.user,
     this.director,
     this.ceo,
     this.location,
     this.totalViews,
+    this.mediaHouseRevenue,
+    this.totalRevenue,
+    this.adminRevenue,
     this.active,
   });
 
   factory MediaHouse.fromJson(Map<String, dynamic> json) => MediaHouse(
-        id: json["id"],
-        mediaHouseName: json["mediaHouseName"],
-        address: json["address"],
-        contactNumber: json["contactNumber"],
-        email: json["email"],
-        registrationCertificate: json["registrationCertificate"],
-        gstCertificates: json["gstCertificates"],
-        adharCard: json["adharCard"],
+        id: _readNullableInt(json["id"]),
+        mediaHouseName: json["mediaHouseName"]?.toString(),
+        address: json["address"]?.toString(),
+        contactNumber: json["contactNumber"]?.toString(),
+        email: json["email"]?.toString(),
+        registrationCertificate: json["registrationCertificate"]?.toString(),
+        gstCertificates: json["gstCertificates"]?.toString(),
+        adharCard: json["adharCard"]?.toString(),
         shopAct: json["shopAct"],
-        panCard: json["panCard"],
-        createdDate: json["createdDate"],
+        panCard: json["panCard"]?.toString(),
+        createdDate: _readNullableInt(json["createdDate"]),
         updatedDate: json["updatedDate"],
         profileImage: json["profileImage"],
         otp: json["otp"],
         password: json["password"],
-        status: json["status"],
+        status: json["status"]?.toString(),
         joinDate: json["joinDate"],
         logo: json["logo"],
         totalReveneu: json["totalReveneu"],
         postCount: json["postCount"],
         discription: json["discription"],
-        bankAccountNumber: json["bankAccountNumber"],
-        bankIfscNumber: json["bankIFSCNumber"],
-        bankProof: json["bankProof"],
-        identityProof: json["identityProof"],
-        addressProof: json["addressProof"],
+        bankAccountNumber: json["bankAccountNumber"]?.toString(),
+        bankIfscNumber: json["bankIFSCNumber"]?.toString() ?? json["bankIfscNumber"]?.toString(),
+        bankProof: json["bankProof"]?.toString(),
+        identityProof: json["identityProof"]?.toString(),
+        addressProof: json["addressProof"]?.toString(),
         bankName: json["bankName"],
         accountHolderName: json["accountHolderName"],
         firmType: json["firmType"],
+        designation: json["designation"]?.toString(),
+        gstNumber: json["gstNumber"]?.toString(),
+        authorizedPerson: json["authorizedPerson"]?.toString(),
+        companyVerificationStatus: json["companyVerificationStatus"]?.toString(),
+        companyVerificationSubmittedAt: json["companyVerificationSubmittedAt"],
+        companyVerificationReviewedAt: json["companyVerificationReviewedAt"],
+        companyVerificationRejectionRemarks:
+            json["companyVerificationRejectionRemarks"]?.toString(),
+        companyVerificationAdminRemark:
+            json["companyVerificationAdminRemark"]?.toString(),
+        directorId: _readNullableInt(json["directorId"]),
+        ceoId: _readNullableInt(json["ceoId"]),
         user: json["user"] == null ? null : User.fromJson(json["user"]),
         director:
             json["director"] == null ? null : User.fromJson(json["director"]),
@@ -114,7 +152,10 @@ class MediaHouse {
             ? null
             : Location.fromJson(json["location"]),
         totalViews: json["totalViews"],
-        active: json["active"],
+        mediaHouseRevenue: json["mediaHouseRevenue"],
+        totalRevenue: json["totalRevenue"],
+        adminRevenue: json["AdminRevnue"] ?? json["adminRevenue"],
+        active: json["active"] == true,
       );
 
   Map<String, dynamic> toJson() => {
@@ -147,11 +188,32 @@ class MediaHouse {
         "bankName": bankName,
         "accountHolderName": accountHolderName,
         "firmType": firmType,
+        "designation": designation,
+        "gstNumber": gstNumber,
+        "authorizedPerson": authorizedPerson,
+        "companyVerificationStatus": companyVerificationStatus,
+        "companyVerificationSubmittedAt": companyVerificationSubmittedAt,
+        "companyVerificationReviewedAt": companyVerificationReviewedAt,
+        "companyVerificationRejectionRemarks":
+            companyVerificationRejectionRemarks,
+        "companyVerificationAdminRemark": companyVerificationAdminRemark,
+        "directorId": directorId,
+        "ceoId": ceoId,
         "user": user?.toJson(),
         "director": director?.toJson(),
         "ceo": ceo?.toJson(),
         "location": location?.toJson(),
         "totalViews": totalViews,
+        "mediaHouseRevenue": mediaHouseRevenue,
+        "totalRevenue": totalRevenue,
+        "AdminRevnue": adminRevenue,
         "active": active,
       };
+}
+
+int? _readNullableInt(dynamic value) {
+  if (value == null) return null;
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value.toString());
 }

@@ -21,6 +21,8 @@ import '../../domain/entities/content.dart';
 import '../core/auth/auth_service.dart';
 import '../core/network/api_helper.dart';
 import '../core/utils/sharepreferences.dart';
+import '../core/upload/multipart_upload_persistence.dart';
+import '../core/upload/s3_multipart_upload_service.dart';
 
 class SeriesProvider extends ChangeNotifier {
   List<ShortModel> shorts = [];
@@ -69,6 +71,61 @@ class SeriesProvider extends ChangeNotifier {
 
   bool get isEpisodeAudioUploading => _isEpisodeAudioUploading;
   bool get isEpisodeSubtitleUploading => _isEpisodeSubtitleUploading;
+
+  html.File? episodeSelectedFile;
+  final Map<String, S3MultipartUploadTask> _episodeUploadTasks = {};
+  final Map<String, MultipartProgressInfo> _episodeUploadProgressInfo = {};
+
+  MultipartProgressInfo? getEpisodeProgressInfo(String taskId) =>
+      _episodeUploadProgressInfo[taskId];
+
+  Future<void> startEpisodeMultipartUpload({
+    required html.File file,
+    required String contentId,
+    required String taskId,
+  }) async {
+    episodeSelectedFile = file;
+
+    final task = S3MultipartUploadTask(
+      localTaskId: taskId,
+      file: file,
+      contentId: contentId,
+      onProgress: (info) {
+        _episodeUploadProgressInfo[taskId] = info;
+        notifyListeners();
+      },
+    );
+
+    _episodeUploadTasks[taskId] = task;
+    await task.startOrResume();
+  }
+
+  void pauseEpisodeMultipartUpload(String taskId) {
+    _episodeUploadTasks[taskId]?.pause();
+  }
+
+  Future<void> resumeEpisodeMultipartUpload(String taskId, {html.File? file}) async {
+    final task = _episodeUploadTasks[taskId];
+    final targetFile = file ?? episodeSelectedFile;
+    if (task != null && targetFile != null) {
+      await task.startOrResume(reselectedFile: targetFile);
+    }
+  }
+
+  Future<void> retryEpisodeMultipartUpload(String taskId) async {
+    final task = _episodeUploadTasks[taskId];
+    if (task != null && episodeSelectedFile != null) {
+      await task.startOrResume(reselectedFile: episodeSelectedFile);
+    }
+  }
+
+  Future<void> abortEpisodeMultipartUpload(String taskId) async {
+    final task = _episodeUploadTasks[taskId];
+    await task?.abort();
+    _episodeUploadTasks.remove(taskId);
+    _episodeUploadProgressInfo.remove(taskId);
+    notifyListeners();
+  }
 
   SeriesDetailsResponse? _data;
   bool _loading = false;
@@ -666,6 +723,8 @@ class SeriesProvider extends ChangeNotifier {
         return;
       }
 
+      episodeSelectedFile = file;
+
       final xhr = html.HttpRequest();
       final formData = html.FormData();
 
@@ -1085,6 +1144,26 @@ class SeriesProvider extends ChangeNotifier {
       debugPrint("STATUS => ${response.statusCode}");
       debugPrint("RESPONSE => ${response.body}");
 
+      if ((response.statusCode == 200 || response.statusCode == 201) &&
+          episodeSelectedFile != null) {
+        try {
+          final decoded = jsonDecode(response.body);
+          final dataMap = decoded is Map<String, dynamic>
+              ? (decoded['data'] ?? decoded)
+              : <String, dynamic>{};
+          final epId = dataMap['id'] ?? dataMap['contentId'] ?? dataMap['episodeId'];
+          if (epId != null) {
+            startEpisodeMultipartUpload(
+              file: episodeSelectedFile!,
+              contentId: epId.toString(),
+              taskId: 'episode_$epId',
+            );
+          }
+        } catch (e) {
+          debugPrint("Error parsing episode ID for multipart upload: $e");
+        }
+      }
+
       return response;
     } catch (e) {
       debugPrint("Create Episode Error: $e");
@@ -1121,6 +1200,15 @@ class SeriesProvider extends ChangeNotifier {
       debugPrint('Update Episode URL => $url');
       debugPrint('Update Episode Request => $body');
       debugPrint('Update Episode Response => ${response.body}');
+
+      if (_isSuccessStatus(response.statusCode) && episodeSelectedFile != null) {
+        startEpisodeMultipartUpload(
+          file: episodeSelectedFile!,
+          contentId: episodeId.toString(),
+          taskId: 'episode_$episodeId',
+        );
+      }
+
       return response;
     } catch (e) {
       debugPrint("Update Episode Error: $e");

@@ -5,6 +5,7 @@ import 'package:media_house/app/widget/StarRatingWidget.dart';
 import 'package:media_house/device/utils/ResponsiveWidget.dart';
 import 'package:media_house/domain/entities/content.dart';
 import '../core/content/content_type.dart';
+import '../core/utils/currency_formatter.dart';
 
 class MovieCard extends StatelessWidget {
   final int movieId;
@@ -43,6 +44,8 @@ class MovieCard extends StatelessWidget {
     return value.toStringAsFixed(0);
   }
 
+  String _revenue(dynamic value) => formatAmount(value);
+
   String _languageLabel() {
     final languages = movie.languageList
             ?.map((item) => (item.language ?? '').trim())
@@ -54,7 +57,7 @@ class MovieCard extends StatelessWidget {
     return '${languages.first} +${languages.length - 1}';
   }
 
-  Widget _metricChip(IconData icon, String value) {
+  Widget _metricChip(IconData icon, String value, {String? label}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
       decoration: BoxDecoration(
@@ -67,7 +70,7 @@ class MovieCard extends StatelessWidget {
           Icon(icon, size: 12, color: Colors.white),
           const SizedBox(width: 3),
           Text(
-            value,
+            label == null ? value : '$label $value',
             style: const TextStyle(
               fontSize: 10,
               color: Colors.white,
@@ -219,8 +222,16 @@ class MovieCard extends StatelessWidget {
                                 _compact(_toNum(movie.ratingCount)),
                               ),
                               _metricChip(
+                                Icons.account_balance_wallet_outlined,
+                                _revenue(
+                                  movie.effectiveMediaHouseGrossRevenue,
+                                ),
+                                label: 'Gross',
+                              ),
+                              _metricChip(
                                 Icons.currency_rupee,
-                                _compact(_toNum(movie.totalRevenue)),
+                                _revenue(movie.effectiveMediaHouseNetRevenue),
+                                label: 'Net',
                               ),
                             ],
                           ),
@@ -363,8 +374,16 @@ class MovieCard extends StatelessWidget {
                                 _compact(_toNum(movie.ratingCount)),
                               ),
                               _metricChip(
+                                Icons.account_balance_wallet_outlined,
+                                _revenue(
+                                  movie.effectiveMediaHouseGrossRevenue,
+                                ),
+                                label: 'Gross',
+                              ),
+                              _metricChip(
                                 Icons.currency_rupee,
-                                _compact(_toNum(movie.totalRevenue)),
+                                _revenue(movie.effectiveMediaHouseNetRevenue),
+                                label: 'Net',
                               ),
                             ],
                           ),

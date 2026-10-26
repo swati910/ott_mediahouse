@@ -14,6 +14,7 @@ import '../../../../core/constant/api_constant.dart';
 import '../../../../core/utils/image_validation_service.dart';
 import '../../../../provider/shorts_provider.dart';
 import '../../../../widget/show_toast.dart';
+import '../../../widget/multipart_upload_progress_widget.dart';
 
 class EditShortPartDialog extends StatefulWidget {
   final int shortId;
@@ -221,6 +222,21 @@ class _EditShortPartDialogState extends State<EditShortPartDialog> {
             _uploadButton(
               label: "Upload Video",
               onTap: () => provider.uploadVideo(false),
+            ),
+          ],
+          if (provider.getPartProgressInfo('part_${widget.part.partId}') !=
+              null) ...[
+            const SizedBox(height: 10),
+            MultipartUploadProgressWidget(
+              info: provider.getPartProgressInfo('part_${widget.part.partId}')!,
+              onPause: () => provider
+                  .pausePartMultipartUpload('part_${widget.part.partId}'),
+              onResume: () => provider
+                  .resumePartMultipartUpload('part_${widget.part.partId}'),
+              onRetry: () => provider
+                  .retryPartMultipartUpload('part_${widget.part.partId}'),
+              onAbort: () => provider
+                  .abortPartMultipartUpload('part_${widget.part.partId}'),
             ),
           ],
         ],

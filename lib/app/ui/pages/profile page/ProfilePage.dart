@@ -1,4 +1,4 @@
-﻿import 'package:flutter/cupertino.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:media_house/app/core/constant/app_constant.dart';
@@ -310,7 +310,10 @@ class _ProfilePageState extends State<ProfilePage> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compact = constraints.maxWidth < 920;
+        // Keep profile details and document previews stacked throughout the
+        // tablet range. The split layout needs desktop width to avoid narrow,
+        // clipped document cards.
+        final compact = constraints.maxWidth < 1100;
 
         if (compact) {
           return Column(
@@ -336,6 +339,8 @@ class _ProfilePageState extends State<ProfilePage> {
                   infoTiles[1],
                   const SizedBox(height: 10),
                   infoTiles[2],
+                  const SizedBox(height: 10),
+                  infoTiles[3],
                 ],
               ),
             ),

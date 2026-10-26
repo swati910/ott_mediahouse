@@ -47,7 +47,7 @@ class Episode {
   int? runtime;
   int? releaseDate;
   int? seasonId;
-  int? amount;
+  num? amount;
   int? viewCount;
   String? partName;
   bool? free;
@@ -80,7 +80,7 @@ class Episode {
     runtime: _toInt(json["runtime"]),
     releaseDate: _toInt(json["releaseDate"]),
     seasonId: _toInt(json["seasonId"]),
-    amount: _toInt(json["amount"]),
+    amount: _toNum(json["amount"]),
     viewCount: _toInt(json["viewCount"]),
     partName: _toStringOrNull(json["partName"]),
     free: _toBool(json["free"]),
@@ -111,7 +111,7 @@ class Season {
   String? description;
   dynamic posterUrl;
   int? seasonNumber;
-  int? amount;
+  num? amount;
   int? releaseDate;
   int? viewCount;
   int? contentId;
@@ -136,7 +136,7 @@ class Season {
     description: _toStringOrNull(json["description"]),
     posterUrl: json["posterUrl"],
     seasonNumber: _toInt(json["seasonNumber"]),
-    amount: _toInt(json["amount"]),
+    amount: _toNum(json["amount"]),
     releaseDate: _toInt(json["releaseDate"]),
     viewCount: _toInt(json["viewCount"]),
     contentId: _toInt(json["contentId"]),
@@ -169,6 +169,7 @@ class Series {
   final List<String> castList;
   final List<String> posterUrlList;
   final String trailerURL;
+  final String teaserURL;
   final String type;
   final String? ageRating;
 
@@ -184,6 +185,7 @@ class Series {
     required this.castList,
     required this.posterUrlList,
     required this.trailerURL,
+    required this.teaserURL,
     required this.type,
     this.ageRating,
   });
@@ -193,6 +195,7 @@ class Series {
     final rawRatingCount = json['ratingCount'];
     final rawPrice = json['price'];
     final rawTrailer = json['trailerURL'] ?? json['trailerUrl'];
+    final rawTeaser = json['teaserURL'] ?? json['teaserUrl'];
 
     return Series(
       id: _toInt(json['id']) ?? 0,
@@ -208,6 +211,7 @@ class Series {
       castList: _toStringList(json['castList']),
       posterUrlList: _toStringList(json['posterUrlList']),
       trailerURL: (rawTrailer ?? '').toString(),
+      teaserURL: (rawTeaser ?? '').toString(),
       type: (json['type'] ?? '').toString(),
       ageRating: json['ageRating'],
     );
@@ -226,6 +230,12 @@ List<Map<String, dynamic>> _asMapList(dynamic value) {
       .whereType<Map>()
       .map((e) => Map<String, dynamic>.from(e))
       .toList();
+}
+
+num? _toNum(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value;
+  return num.tryParse(value.toString());
 }
 
 int? _toInt(dynamic value) {

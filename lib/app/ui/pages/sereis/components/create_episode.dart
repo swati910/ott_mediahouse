@@ -19,7 +19,7 @@ import '../../DisplayTrailer.dart';
 class AddEpisodeDialog extends StatefulWidget {
   final int seriesId;
   final int seasonId;
-  final int seasonPrice;
+  final num seasonPrice;
   final String seriesLanguage;
   final FutureOr<void> Function() onSuccess;
 
@@ -559,7 +559,7 @@ class _AddEpisodeDialogState extends State<AddEpisodeDialog> {
     }
     final episodeAmount = followSeasonPrice
         ? widget.seasonPrice
-        : int.tryParse(manualPriceCtrl.text.trim());
+        : num.tryParse(manualPriceCtrl.text.trim());
     if (episodeAmount == null || episodeAmount < 0) {
       showGlobalSnack("Please enter a valid episode price");
       return;

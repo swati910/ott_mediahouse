@@ -169,10 +169,6 @@ class MovieCardHorizontal extends StatelessWidget {
               _keyValue("Director", _join(movie.directorList)),
               _keyValue("Cast", _join(movie.castList)),
               _keyValue("Price", movie.price?.toString() ?? "N/A"),
-              _keyValue(
-                "Total Revenue",
-                movie.totalRevenue?.toString() ?? "N/A",
-              ),
             ],
           ),
         ),

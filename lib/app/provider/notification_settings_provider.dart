@@ -124,7 +124,7 @@ class NotificationSettingsProvider extends ChangeNotifier {
       await _fetchAnalytics();
       _page = 0;
     } catch (error) {
-      _errorMessage = 'Unable to load settings data: $error';
+      _errorMessage = 'Unable to load settings data. Please try again.';
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -140,7 +140,7 @@ class NotificationSettingsProvider extends ChangeNotifier {
       _notifications = await _fetchMediaHouseNotifications(page: _page);
       await _fetchAnalytics();
     } catch (error) {
-      _errorMessage = 'Unable to refresh notifications: $error';
+      _errorMessage = 'Unable to refresh notifications. Please try again.';
     }
     notifyListeners();
   }
@@ -155,7 +155,7 @@ class NotificationSettingsProvider extends ChangeNotifier {
       _notifications = [..._notifications, ...nextItems];
       _page = nextPage;
     } catch (error) {
-      _errorMessage = 'Unable to load more notifications: $error';
+      _errorMessage = 'Unable to load more notifications. Please try again.';
     } finally {
       _isLoadingMore = false;
       notifyListeners();
@@ -232,7 +232,7 @@ class NotificationSettingsProvider extends ChangeNotifier {
       _attachmentUrl = null;
       _attachmentSize = 0;
       _attachmentType = '';
-      _errorMessage = 'Attachment upload failed: $error';
+      _errorMessage = 'Unable to upload the attachment. Please try again.';
     } finally {
       _isAttachmentUploading = false;
       notifyListeners();

@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -14,13 +14,15 @@ import '../widget/show_toast.dart';
 
 class GraphProvider extends ChangeNotifier {
   DateTimeRange? selectedDateRange = DateTimeRange(
-    start: DateTime.now().subtract(const Duration(days: 7)),
-    end: DateTime.now(),
+    start: DateTime(DateTime.now().year, DateTime.now().month, 1),
+    end: DateTime(DateTime.now().year, DateTime.now().month + 1, 0),
   );
   DateTime get today => DateTime.now();
-  DateTime? startDate = DateTime.now().subtract(const Duration(days: 7));
-  DateTime? endDate = DateTime.now();
-  String activeButton = 'Week';
+  DateTime? startDate =
+      DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime? endDate =
+      DateTime(DateTime.now().year, DateTime.now().month + 1, 0);
+  String activeButton = 'Month';
 
   bool isYear = false;
   bool isMonth = true;
@@ -264,6 +266,9 @@ class GraphProvider extends ChangeNotifier {
       notifyListeners();
       debugPrint(apiUrl);
       final response = await apiHelper.getApi(apiUrl);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('Request failed with status ${response.statusCode}');
+      }
       final responseBody = json.decode(response.body) as Map<String, dynamic>;
       final topRevenueMovie = TopRevenueMovie.fromJson(responseBody);
       debugPrint(response.body);
@@ -273,7 +278,7 @@ class GraphProvider extends ChangeNotifier {
         for (final data in chartData) {
           graphData.add({
             "label": data.name,
-            "value": data.totalRevenue,
+            "value": data.mediaHouseNetRevenue ?? data.totalRevenue ?? 0.0,
           });
         }
       } else {
@@ -288,7 +293,6 @@ class GraphProvider extends ChangeNotifier {
       _clearTopMoviesGraphState();
       notifyListeners();
       debugPrint("Error occurred while fetching graph data: $error");
-      throw Exception('Failed to fetch graph data. Error: $error');
     }
   }
 
@@ -336,6 +340,9 @@ class GraphProvider extends ChangeNotifier {
       notifyListeners();
 
       final response = await apiHelper.getApi(apiUrl);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('Request failed with status ${response.statusCode}');
+      }
       final responseBody = json.decode(response.body) as Map<String, dynamic>;
       final topRatedMovie = TopRatedMovie.fromJson(responseBody);
 
@@ -360,7 +367,6 @@ class GraphProvider extends ChangeNotifier {
       _clearTopMoviesGraphState();
       notifyListeners();
       debugPrint("Error occurred while fetching graph data: $error");
-      throw Exception('Failed to fetch graph data. Error: $error');
     }
   }
 

@@ -12,6 +12,7 @@ import 'package:media_house/app/provider/themeProvider.dart';
 import 'package:media_house/app/provider/ticketProvider.dart';
 import 'package:media_house/app/provider/user_provider.dart';
 import 'package:media_house/app/provider/videoProvider.dart';
+import 'package:media_house/app/provider/wallet_provider.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:provider/provider.dart';
 import 'app/core/navigation/app_navigator.dart';
@@ -47,6 +48,7 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => SignUpProvider()),
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
         ChangeNotifierProvider(create: (_) => NotificationSettingsProvider()),
+        ChangeNotifierProvider(create: (_) => WalletProvider()),
       ],
       child: MyApp(),
     ),

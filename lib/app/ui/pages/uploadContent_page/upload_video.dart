@@ -17,6 +17,8 @@ import 'package:provider/provider.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 
 import '../../../provider/videoProvider.dart';
+import '../../../core/upload/s3_multipart_upload_service.dart';
+import '../../widget/multipart_upload_progress_widget.dart';
 import '../../../../domain/entities/content.dart';
 import '../../../core/content/content_type.dart';
 
@@ -49,7 +51,6 @@ class UploadVideoWidget extends StatefulWidget {
   @override
   State<UploadVideoWidget> createState() => _UploadVideoWidgetState();
 }
-
 class _UploadVideoWidgetState extends State<UploadVideoWidget> {
   final PageController _pageController = PageController();
   static const String _razorpayKeyId = AppConstant.razorpayKeyId;
@@ -59,8 +60,11 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
   Razorpay? _razorpay;
   int _currentPage = 0;
   bool _isDownloadingAgreement = false;
+  bool _isSubmitting = false;
 
   bool get _isMovieLike => widget.uploadType.isMovieLike;
+  bool get _requiresCensorCertificate =>
+      widget.uploadType == UploadContentType.movie;
   String get _uploadContentType => widget.uploadType.apiValue;
   String get _registrationFeeContentType => switch (widget.uploadType) {
         UploadContentType.movie => "MOVIES",
@@ -206,7 +210,7 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
     try {
       _razorpay!.open(options);
     } catch (error) {
-      CustomToast.show(context, "Unable to open payment gateway: $error",
+      CustomToast.show(context, 'Unable to open the payment gateway. Please try again.',
           isSuccess: false);
     }
   }
@@ -272,7 +276,7 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
           isSuccess: true);
     } catch (error) {
       if (!mounted) return;
-      CustomToast.show(context, 'Unable to download agreement: $error',
+      CustomToast.show(context, 'Unable to download the agreement. Please try again.',
           isSuccess: false);
     } finally {
       if (mounted) {
@@ -306,12 +310,14 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
     }
 
     final provider = context.read<VideoProvider>();
-    final amount = (provider.activeRegistrationFee ??
-            double.tryParse(
-              provider.registrationAmountPaidController.text.trim(),
-            ) ??
-            0)
-        .toStringAsFixed(2);
+    final feeVal = provider.activeRegistrationFee ??
+        double.tryParse(
+          provider.registrationAmountPaidController.text.trim(),
+        ) ??
+        0;
+    final amount = (feeVal == feeVal.roundToDouble())
+        ? feeVal.toInt().toString()
+        : feeVal.toString();
 
     provider.setRegistrationPaymentDetails(
       paymentId: normalizedPaymentId,
@@ -356,47 +362,50 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
     final selectedThemeData =
         Provider.of<ThemeProvider>(context, listen: false).getTheme;
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Center(
-        child: Container(
-          constraints: BoxConstraints(
-            maxWidth: ResponsiveWidget.isMobile(context)
-                ? MediaQuery.of(context).size.width - 8
-                : MediaQuery.of(context).size.width - 70,
-            maxHeight: MediaQuery.of(context).size.height - 40,
-          ),
-          margin: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: selectedThemeData.cardColor,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Consumer<VideoProvider>(
-            builder: (context, provider, child) {
-              return Column(
-                children: [
-                  _buildHeader(selectedThemeData),
-                  _buildProgressIndicator(selectedThemeData),
-                  Expanded(
-                    child: PageView(
-                      controller: _pageController,
-                      physics: const NeverScrollableScrollPhysics(),
-                      children: _isMovieLike
-                          ? _moviePages(selectedThemeData, provider)
-                          : _seriesPages(selectedThemeData, provider),
+    return WillPopScope(
+      onWillPop: () async => !_isSubmitting,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Center(
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: ResponsiveWidget.isMobile(context)
+                  ? MediaQuery.of(context).size.width - 8
+                  : MediaQuery.of(context).size.width - 70,
+              maxHeight: MediaQuery.of(context).size.height - 40,
+            ),
+            margin: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: selectedThemeData.cardColor,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Consumer<VideoProvider>(
+              builder: (context, provider, child) {
+                return Column(
+                  children: [
+                    _buildHeader(selectedThemeData),
+                    _buildProgressIndicator(selectedThemeData),
+                    Expanded(
+                      child: PageView(
+                        controller: _pageController,
+                        physics: const NeverScrollableScrollPhysics(),
+                        children: _isMovieLike
+                            ? _moviePages(selectedThemeData, provider)
+                            : _seriesPages(selectedThemeData, provider),
+                      ),
                     ),
-                  ),
-                  _buildFooter(selectedThemeData, provider),
-                ],
-              );
-            },
+                    _buildFooter(selectedThemeData, provider),
+                  ],
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -609,19 +618,36 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
         .where((item) => item.isNotEmpty)
         .toList();
 
+    final isUploadingTeaser = provider.isTeaserUploading ||
+        (provider.activeTeaserProgressInfo != null &&
+            provider.activeTeaserProgressInfo!.state != MultipartUploadState.idle &&
+            provider.activeTeaserProgressInfo!.state != MultipartUploadState.completed);
+
+    final isUploadingTrailer = provider.isTrailerUploading ||
+        (provider.activeTrailerProgressInfo != null &&
+            provider.activeTrailerProgressInfo!.state != MultipartUploadState.idle &&
+            provider.activeTrailerProgressInfo!.state != MultipartUploadState.completed);
+
+    final isUploadingMovie = provider.isMovieUploading ||
+        (provider.activePrimaryProgressInfo != null &&
+            provider.activePrimaryProgressInfo!.state != MultipartUploadState.idle &&
+            provider.activePrimaryProgressInfo!.state != MultipartUploadState.completed);
+
     return SingleChildScrollView(
       padding: _pagePadding,
       child: Column(
         children: [
-          UploadFormHelpers.buildSectionCard(
-            "Common Upload Files",
-            [
-              UploadMediaHelpers.buildEnhancedUploadSection(
-                  "Censor Certificate", theme, context),
-            ],
-            theme,
-          ),
-          const SizedBox(height: 12),
+          if (_requiresCensorCertificate) ...[
+            UploadFormHelpers.buildSectionCard(
+              "Common Upload Files",
+              [
+                UploadMediaHelpers.buildEnhancedUploadSection(
+                    "Censor Certificate", theme, context),
+              ],
+              theme,
+            ),
+            const SizedBox(height: 12),
+          ],
           if (selectedLanguages.isEmpty)
             UploadFormHelpers.buildSectionCard(
               "Language Variants",
@@ -719,15 +745,20 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
     bool isVideo = false,
   }) {
     final controller = provider.movieVariantController(language, field);
-    final uploaded = controller.text.trim().isNotEmpty;
+    final imageUrl = controller.text.trim();
+    final uploaded = imageUrl.isNotEmpty;
     final isUploading = provider.isMovieVariantUploading(language, field);
     final progress = provider.movieVariantUploadProgress(language, field);
+    final isPosterImage = field.startsWith('poster');
+    final double containerHeight =
+        (uploaded && isPosterImage) ? 120.0 : 80.0;
+
     final borderColor = uploaded
-        ? Colors.green.withValues(alpha: 0.35)
-        : theme.primaryColor.withValues(alpha: 0.35);
+        ? Colors.green.withValues(alpha: 0.3)
+        : theme.primaryColor.withValues(alpha: 0.3);
     final containerColor = uploaded
-        ? Colors.green.withValues(alpha: 0.08)
-        : theme.primaryColor.withValues(alpha: 0.08);
+        ? Colors.green.withValues(alpha: 0.1)
+        : theme.primaryColor.withValues(alpha: 0.1);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -740,7 +771,7 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
             color: theme.canvasColor,
           ),
         ),
-        if (field.startsWith('poster')) ...[
+        if (isPosterImage) ...[
           const SizedBox(height: 4),
           Text(
             ImageValidationService.guidelineFor(ImageValidationType.poster),
@@ -763,7 +794,7 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
           borderRadius: BorderRadius.circular(12),
           child: Container(
             width: double.infinity,
-            height: 62,
+            height: containerHeight,
             decoration: BoxDecoration(
               color: containerColor,
               borderRadius: BorderRadius.circular(12),
@@ -776,65 +807,186 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(10),
                       child: LinearProgressIndicator(
-                        value: progress > 0 ? progress : null,
+                        value: progress.clamp(0.0, 1.0),
                         backgroundColor: Colors.transparent,
-                        color: theme.primaryColor.withValues(alpha: 0.25),
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Colors.green.withValues(alpha: 0.35),
+                        ),
+                        minHeight: containerHeight,
                       ),
                     ),
                   ),
-                Center(
-                  child: isUploading
-                      ? Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                value: progress > 0 ? progress : null,
-                                color: theme.primaryColor,
+
+                if (uploaded && isPosterImage)
+                  UploadMediaHelpers.buildImagePreview(
+                      imageUrl, label, theme, context)
+                else
+                  Center(
+                    child: isUploading
+                        ? Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(
+                                height: 26,
+                                width: 26,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 3,
+                                  value: progress.clamp(0.0, 1.0),
+                                  color: theme.primaryColor,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              "Uploading... ${(progress * 100).round()}%",
-                              style: TextStyle(
-                                color: theme.primaryColor,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
+                              const SizedBox(height: 8),
+                              Text(
+                                "Uploading... ${(progress * 100).toInt()}%",
+                                style: TextStyle(
+                                  color: theme.primaryColor,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
-                            ),
-                          ],
-                        )
-                      : Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              uploaded
-                                  ? Icons.check_circle_outline
-                                  : Icons.cloud_upload_outlined,
-                              color:
-                                  uploaded ? Colors.green : theme.primaryColor,
-                              size: 22,
-                            ),
-                            const SizedBox(width: 10),
-                            Text(
-                              uploaded ? "$label Uploaded" : "Upload $label",
-                              style: TextStyle(
+                            ],
+                          )
+                        : Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                uploaded
+                                    ? Icons.check_circle_outline
+                                    : Icons.cloud_upload_outlined,
                                 color: uploaded
                                     ? Colors.green
                                     : theme.primaryColor,
-                                fontWeight: FontWeight.w600,
+                                size: 24,
                               ),
-                            ),
-                          ],
-                        ),
-                ),
+                              const SizedBox(width: 12),
+                              Flexible(
+                                child: Text(
+                                  uploaded ? "$label Uploaded" : "Upload $label",
+                                  style: TextStyle(
+                                    color: uploaded
+                                        ? Colors.green
+                                        : theme.primaryColor,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                              if (uploaded) ...[
+                                const SizedBox(width: 8),
+                                if (imageUrl.isNotEmpty) ...[
+                                  InkWell(
+                                    onTap: () =>
+                                        UploadMediaHelpers.showImagePreview(
+                                      context,
+                                      imageUrl,
+                                      label,
+                                      theme,
+                                    ),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 5),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: const Text(
+                                        "View",
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                ],
+                                InkWell(
+                                  onTap: () => provider.pickMovieVariantFile(
+                                    context,
+                                    language,
+                                    field,
+                                    isVideo: isVideo,
+                                  ),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: theme.primaryColor,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Text(
+                                      "Replace",
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                InkWell(
+                                  onTap: () => controller.clear(),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Text(
+                                      "Delete",
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                  ),
               ],
             ),
           ),
         ),
+        if (field == 'teaser' && provider.activeTeaserProgressInfo != null &&
+            provider.activeTeaserProgressInfo!.state != MultipartUploadState.idle) ...[
+          const SizedBox(height: 12),
+          MultipartUploadProgressWidget(
+            info: provider.activeTeaserProgressInfo!,
+            onPause: () => provider.pauseTeaserMultipartUpload(),
+            onResume: () => provider.resumeTeaserMultipartUpload(),
+            onRetry: () => provider.retryTeaserMultipartUpload(),
+            onAbort: () => provider.abortTeaserMultipartUpload(),
+          ),
+        ],
+        if (field == 'trailer' && provider.activeTrailerProgressInfo != null &&
+            provider.activeTrailerProgressInfo!.state != MultipartUploadState.idle) ...[
+          const SizedBox(height: 12),
+          MultipartUploadProgressWidget(
+            info: provider.activeTrailerProgressInfo!,
+            onPause: () => provider.pauseTrailerMultipartUpload(),
+            onResume: () => provider.resumeTrailerMultipartUpload(),
+            onRetry: () => provider.retryTrailerMultipartUpload(),
+            onAbort: () => provider.abortTrailerMultipartUpload(),
+          ),
+        ],
+        if ((field == 'movie' || field == 'video') && provider.activePrimaryProgressInfo != null &&
+            provider.activePrimaryProgressInfo!.state != MultipartUploadState.idle) ...[
+          const SizedBox(height: 12),
+          MultipartUploadProgressWidget(
+            info: provider.activePrimaryProgressInfo!,
+            onPause: () => provider.pausePrimaryMultipartUpload(),
+            onResume: () => provider.resumePrimaryMultipartUpload(),
+            onRetry: () => provider.retryPrimaryMultipartUpload(),
+            onAbort: () => provider.abortPrimaryMultipartUpload(),
+          ),
+        ],
       ],
     );
   }
@@ -911,24 +1063,58 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
           const SizedBox(height: 8),
           ...List.generate(provider.pendingCasts.length, (index) {
             final cast = provider.pendingCasts[index];
+            final imageUrl = (cast["image"] ?? "").trim();
+            final roleText = (cast["role"] ?? "").trim();
             return Container(
               width: double.infinity,
               margin: const EdgeInsets.only(bottom: 8),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
-                color: theme.cardColor.withOpacity(0.5),
+                color: theme.cardColor.withValues(alpha: 0.5),
                 border: Border.all(color: theme.dividerColor),
               ),
               child: Row(
                 children: [
-                  Expanded(
-                    child: Text(
-                      "${cast["name"] ?? ""} (${cast["role"] ?? ""})",
-                      style: TextStyle(
-                        color: theme.canvasColor,
-                        fontWeight: FontWeight.w600,
+                  if (imageUrl.isNotEmpty)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Image.network(
+                        imageUrl,
+                        width: 40,
+                        height: 40,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => CircleAvatar(
+                          radius: 20,
+                          backgroundColor:
+                              theme.primaryColor.withValues(alpha: 0.15),
+                          child: Icon(Icons.person,
+                              color: theme.primaryColor, size: 22),
+                        ),
                       ),
+                    )
+                  else
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor:
+                          theme.primaryColor.withValues(alpha: 0.15),
+                      child: Icon(Icons.person,
+                          color: theme.primaryColor, size: 22),
+                    ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          cast["name"] ?? "",
+                          style: TextStyle(
+                            color: theme.canvasColor,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   IconButton(
@@ -981,7 +1167,8 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
                 label: const Text("Add Crew"),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: theme.primaryColor,
-                  side: BorderSide(color: theme.primaryColor.withOpacity(0.4)),
+                  side: BorderSide(
+                      color: theme.primaryColor.withValues(alpha: 0.4)),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
               ),
@@ -994,7 +1181,7 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
                 label: const Text("Clear Draft"),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.red,
-                  side: BorderSide(color: Colors.red.withOpacity(0.4)),
+                  side: BorderSide(color: Colors.red.withValues(alpha: 0.4)),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
               ),
@@ -1014,24 +1201,68 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
           const SizedBox(height: 8),
           ...List.generate(provider.pendingCrews.length, (index) {
             final crew = provider.pendingCrews[index];
+            final imageUrl = (crew["image"] ?? "").trim();
+            final roleText = (crew["role"] ?? "").trim();
             return Container(
               width: double.infinity,
               margin: const EdgeInsets.only(bottom: 8),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
-                color: theme.cardColor.withOpacity(0.5),
+                color: theme.cardColor.withValues(alpha: 0.5),
                 border: Border.all(color: theme.dividerColor),
               ),
               child: Row(
                 children: [
-                  Expanded(
-                    child: Text(
-                      "${crew["name"] ?? ""} (${crew["role"] ?? ""})",
-                      style: TextStyle(
-                        color: theme.canvasColor,
-                        fontWeight: FontWeight.w600,
+                  if (imageUrl.isNotEmpty)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Image.network(
+                        imageUrl,
+                        width: 40,
+                        height: 40,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => CircleAvatar(
+                          radius: 20,
+                          backgroundColor:
+                              theme.primaryColor.withValues(alpha: 0.15),
+                          child: Icon(Icons.person,
+                              color: theme.primaryColor, size: 22),
+                        ),
                       ),
+                    )
+                  else
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor:
+                          theme.primaryColor.withValues(alpha: 0.15),
+                      child: Icon(Icons.person,
+                          color: theme.primaryColor, size: 22),
+                    ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          crew["name"] ?? "",
+                          style: TextStyle(
+                            color: theme.canvasColor,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        if (roleText.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            roleText,
+                            style: TextStyle(
+                              color: theme.canvasColor.withValues(alpha: 0.65),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                   IconButton(
@@ -1573,7 +1804,7 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
           top: 5,
           left: 5,
           child: IconButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: _isSubmitting ? null : () => Navigator.pop(context),
             style: IconButton.styleFrom(
               backgroundColor:
                   themeData.scaffoldBackgroundColor.withValues(alpha: 0.35),
@@ -1631,7 +1862,7 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
           if (_currentPage > 0)
             Expanded(
               child: OutlinedButton(
-                onPressed: _previousPage,
+                onPressed: _isSubmitting ? null : _previousPage,
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   side: BorderSide(color: themeData.primaryColor),
@@ -1646,7 +1877,9 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
           if (_currentPage > 0) const SizedBox(width: 16),
           Expanded(
             child: ElevatedButton(
-              onPressed: () => _handleButtonPress(provider, themeData),
+              onPressed: _isSubmitting
+                  ? null
+                  : () => _handleButtonPress(provider, themeData),
               style: ElevatedButton.styleFrom(
                 backgroundColor: themeData.primaryColor,
                 foregroundColor: Colors.white,
@@ -1655,7 +1888,16 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              child: Text(_currentPage == _lastPageIndex ? "Submit" : "Next"),
+              child: _isSubmitting
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(_currentPage == _lastPageIndex ? "Submit" : "Next"),
             ),
           ),
         ],
@@ -1664,6 +1906,8 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
   }
 
   void _handleButtonPress(VideoProvider provider, ThemeData themeData) {
+    if (_isSubmitting) return;
+
     if (_currentPage == 0) {
       if (!_validatePageOne(provider)) return;
       _nextPage();
@@ -1735,7 +1979,8 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
       return false;
     }
 
-    if (provider.censorCertificateController.text.trim().isEmpty) {
+    if (_requiresCensorCertificate &&
+        provider.censorCertificateController.text.trim().isEmpty) {
       CustomToast.show(context, "Please upload censor certificate",
           isSuccess: false);
       return false;
@@ -1821,25 +2066,34 @@ class _UploadVideoWidgetState extends State<UploadVideoWidget> {
 
   Future<void> _handleAdd(
       VideoProvider provider, ThemeData selectedThemeData) async {
-    if (_isMovieLike) {
-      final results = await provider.uploadMovieVariants(context);
+    if (_isSubmitting) return;
+    setState(() => _isSubmitting = true);
+
+    try {
+      if (_isMovieLike) {
+        final results = await provider.uploadMovieVariants(context);
+        if (!mounted) return;
+        await _showMovieVariantResultDialog(results, contentType: "movie");
+        if (!mounted) return;
+        if (results.isNotEmpty && results.values.every((value) => value)) {
+          provider.disposeData();
+          Navigator.of(context).pop();
+        }
+        return;
+      }
+
+      final results = await provider.uploadSeriesVariants(context);
       if (!mounted) return;
-      await _showMovieVariantResultDialog(results, contentType: "movie");
+      await _showMovieVariantResultDialog(results, contentType: "series");
       if (!mounted) return;
       if (results.isNotEmpty && results.values.every((value) => value)) {
         provider.disposeData();
         Navigator.of(context).pop();
       }
-      return;
-    }
-
-    final results = await provider.uploadSeriesVariants(context);
-    if (!mounted) return;
-    await _showMovieVariantResultDialog(results, contentType: "series");
-    if (!mounted) return;
-    if (results.isNotEmpty && results.values.every((value) => value)) {
-      provider.disposeData();
-      Navigator.of(context).pop();
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
     }
   }
 

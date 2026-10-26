@@ -5,6 +5,7 @@ import 'package:media_house/app/core/constant/image_constant.dart';
 import 'package:media_house/app/provider/themeProvider.dart';
 import 'package:media_house/app/ui/NavigationPage.dart';
 import 'package:media_house/app/widget/show_toast.dart';
+import 'package:media_house/app/core/utils/user_message.dart';
 import 'package:media_house/device/utils/ResponsiveWidget.dart';
 import 'package:provider/provider.dart';
 
@@ -51,35 +52,38 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
 
     return Scaffold(
       backgroundColor: selectedThemeData.scaffoldBackgroundColor,
-      body: Column(
-        children: [
-          SizedBox(height: ResponsiveWidget.isMobile(context) ? 95 : 60),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SizedBox(
-                height: ResponsiveWidget.isMobile(context) ? 90 : 150,
-                child: Hero(
-                  tag: "logo",
-                  child: ClipRRect(
-                    borderRadius: BorderRadiusGeometry.circular(25),
-                    child: Image.asset(
-                      ImageConstant.logo,
-                      fit: BoxFit.contain,
+      body: SingleChildScrollView(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  height: ResponsiveWidget.isMobile(context) ? 90 : 150,
+                  child: Hero(
+                    tag: "logo",
+                    child: ClipRRect(
+                      borderRadius: BorderRadiusGeometry.circular(25),
+                      child: Image.asset(
+                        ImageConstant.logo,
+                        fit: BoxFit.contain,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 120),
-          Center(
-            child: SizedBox(
-              width: ResponsiveWidget.isMobile(context) ? double.infinity : 400,
-              child: otpCard(selectedThemeData),
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 120),
+            Center(
+              child: SizedBox(
+                width:
+                    ResponsiveWidget.isMobile(context) ? double.infinity : 400,
+                child: otpCard(selectedThemeData),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -182,7 +186,7 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
     final otp = otpController.text.trim();
 
     if (otp.isEmpty || otp.length != 6) {
-      CustomToast.show(context, 'Please enter a valid 6-digit OTP',
+      CustomToast.show(context, 'Please enter a valid 6-digit OTP.',
           isSuccess: false);
       return;
     }
@@ -195,21 +199,29 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
         .verifyOtp(widget.mobileNumber, otp, context);
 
     if (!context.mounted) return;
+    setState(() {
+      _isLoading = false;
+    });
 
     if (result['success'] == true) {
-      CustomToast.show(context, 'Login Successful!', isSuccess: true);
+      CustomToast.show(
+          context,
+          UserMessage.resolve(
+              apiMessage: result['message']?.toString(),
+              fallbackMessage: 'Signed in successfully.'),
+          isSuccess: true);
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => NavigationPage()),
       );
     } else {
-      CustomToast.show(context, 'Failure: ${result['message']}',
+      CustomToast.show(
+          context,
+          UserMessage.resolve(
+              apiMessage: result['message']?.toString(),
+              fallbackMessage: 'Unable to verify the OTP. Please try again.'),
           isSuccess: false);
     }
-
-    setState(() {
-      _isLoading = false;
-    });
   }
 
   Future<void> _resendOtp(BuildContext context) async {
@@ -221,18 +233,26 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
         .loginWithCredentials(widget.mobileNumber, widget.password, context);
 
     if (!context.mounted) return;
-
-    if (result['success'] == true) {
-      CustomToast.show(context, 'OTP sent again', isSuccess: true);
-      _startCountdown();
-    } else {
-      CustomToast.show(context, 'Failure: ${result['message']}',
-          isSuccess: false);
-    }
-
     setState(() {
       _isResending = false;
     });
+
+    if (result['success'] == true) {
+      CustomToast.show(
+          context,
+          UserMessage.resolve(
+              apiMessage: result['message']?.toString(),
+              fallbackMessage: 'OTP sent again.'),
+          isSuccess: true);
+      _startCountdown();
+    } else {
+      CustomToast.show(
+          context,
+          UserMessage.resolve(
+              apiMessage: result['message']?.toString(),
+              fallbackMessage: 'Unable to resend the OTP. Please try again.'),
+          isSuccess: false);
+    }
   }
 
   void _startCountdown() {

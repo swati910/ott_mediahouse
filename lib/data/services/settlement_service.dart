@@ -5,6 +5,7 @@ import 'package:media_house/app/core/constant/api_constant.dart';
 import 'package:media_house/app/core/network/api_helper.dart';
 import 'package:media_house/data/models/response/media_house_settlement.dart';
 import 'package:media_house/data/models/response/weekly_settlement_report.dart';
+import 'package:media_house/data/models/response/transaction_settlement_audit_response.dart';
 
 class SettlementServiceException implements Exception {
   final String message;
@@ -124,6 +125,90 @@ class SettlementService {
     } catch (_) {
       throw const SettlementServiceException(
           'Unable to fetch the settlement report.');
+    }
+  }
+
+  Future<WeeklySettlementReportResponse> getWeeklySettlementReportById(
+    dynamic settlementId,
+  ) async {
+    if (settlementId == null || settlementId.toString().trim().isEmpty) {
+      throw const SettlementServiceException('Settlement ID is unavailable.');
+    }
+    try {
+      final response = await _api.getApi(
+        ApiConstant.weeklySettlementReportById(settlementId),
+      );
+      Map<String, dynamic>? body;
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map) body = Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+      if (response.statusCode != 200) {
+        throw SettlementServiceException(
+          _reportErrorMessage(
+              response.statusCode, body?['message']?.toString()),
+          statusCode: response.statusCode,
+        );
+      }
+      final parsed = WeeklySettlementReportResponse.fromJson(body ?? const {});
+      if (!parsed.success) {
+        throw SettlementServiceException(
+          parsed.message.isEmpty
+              ? 'Unable to fetch the settlement report.'
+              : parsed.message,
+          statusCode: parsed.statusCode,
+        );
+      }
+      return parsed;
+    } on SettlementServiceException {
+      rethrow;
+    } on SocketException {
+      throw const SettlementServiceException(
+          'Unable to connect. Please check your connection and retry.');
+    } on FormatException {
+      throw const SettlementServiceException(
+          'The settlement report service returned an invalid response.');
+    } catch (_) {
+      throw const SettlementServiceException(
+          'Unable to fetch the settlement report.');
+    }
+  }
+
+  Future<TransactionSettlementAuditResponse> getTransactionSettlementReport(
+    dynamic transactionId,
+  ) async {
+    if (transactionId == null || transactionId.toString().trim().isEmpty) {
+      throw const SettlementServiceException('Transaction ID is unavailable.');
+    }
+    try {
+      final response = await _api.getApi(
+        ApiConstant.transactionSettlementReport(transactionId),
+      );
+      Map<String, dynamic>? body;
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map) body = Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+      if (response.statusCode != 200) {
+        throw SettlementServiceException(
+          _errorMessage(response.statusCode, body?['message']?.toString()),
+          statusCode: response.statusCode,
+        );
+      }
+      final parsed =
+          TransactionSettlementAuditResponse.fromJson(body ?? const {});
+      return parsed;
+    } on SettlementServiceException {
+      rethrow;
+    } on SocketException {
+      throw const SettlementServiceException(
+          'Unable to connect. Please check your connection and retry.');
+    } on FormatException {
+      throw const SettlementServiceException(
+          'The transaction audit service returned an invalid response.');
+    } catch (_) {
+      throw const SettlementServiceException(
+          'Unable to fetch transaction settlement reconciliation report.');
     }
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:media_house/app/core/constant/image_constant.dart';
-import 'package:media_house/app/ui/pages/DisplayTrailer.dart';
+import 'package:media_house/app/ui/pages/secure_content_page.dart';
+import 'package:media_house/data/models/response/signed_playback.dart';
 import 'package:media_house/device/utils/ResponsiveWidget.dart';
 import 'package:provider/provider.dart';
 
@@ -653,7 +654,11 @@ class _ShortMasterPageState extends State<ShortMasterPage> {
         insetPadding: const EdgeInsets.all(16),
         child: AspectRatio(
           aspectRatio: 16 / 9,
-          child: TrailerPage(trailerUrl: videoUrl),
+          child: SecureContentPage(
+            contentId: widget.shortId.toString(),
+            contentUrl: videoUrl,
+            contentType: secureContentType('SHORT_FILM'),
+          ),
         ),
       ),
     );

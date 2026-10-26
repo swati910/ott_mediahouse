@@ -479,7 +479,7 @@ class _ShortUploadWorkflowDialogState extends State<ShortUploadWorkflowDialog> {
           isSuccess: true);
       Navigator.of(context).pop();
     } catch (error) {
-      CustomToast.show(context, 'Bulk upload failed: $error', isSuccess: false);
+      CustomToast.show(context, 'Unable to complete the bulk upload. Please try again.', isSuccess: false);
     } finally {
       if (mounted) {
         setState(() => _isSubmitting = false);
@@ -572,7 +572,7 @@ class _ShortUploadWorkflowDialogState extends State<ShortUploadWorkflowDialog> {
       CustomToast.show(context, 'Short created successfully.', isSuccess: true);
       Navigator.of(context).pop();
     } catch (error) {
-      CustomToast.show(context, 'Short upload failed: $error',
+      CustomToast.show(context, 'Unable to upload the short. Please try again.',
           isSuccess: false);
     } finally {
       if (mounted) {
